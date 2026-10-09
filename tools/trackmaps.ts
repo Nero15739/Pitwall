@@ -3,7 +3,7 @@
    A failed fetch is retried at most once a day and never fails the build. */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { TrackMap } from '../src/lib/shared/types.ts';
+import type { TrackMap } from './lib/types.ts';
 import type { Config } from './lib/config.ts';
 import { atomicWrite } from './lib/util.ts';
 

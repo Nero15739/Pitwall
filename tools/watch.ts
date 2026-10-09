@@ -1,6 +1,7 @@
 /* Keeps public/data up to date: recompiles when a race export or harvested incident file
-   lands in the data folder. File-system events trigger it straight away; a slow poll catches
-   anything OneDrive syncs in without raising an event. One watcher runs at a time.
+   lands in the data folder, and pushes it to the hosted site when "site" and an API key are set.
+   File-system events trigger it straight away; a slow poll catches anything OneDrive syncs in
+   without raising an event. One watcher runs at a time.
 
      node tools/watch.ts          watch, logging to the console
      node tools/watch.ts --log    log to .cache/watcher.log instead (for running hidden)  */
@@ -9,6 +10,7 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { compile, report, snapshot, stamp } from './compile.ts';
 import { loadConfig } from './lib/config.ts';
+import { pushChanged, pushConfigured } from './push.ts';
 
 const cfg = loadConfig();
 const DEBOUNCE_MS = 2000;   // let OneDrive / a copy finish writing
@@ -35,6 +37,14 @@ async function run(force = false) {
     const now = snapshot();
     if (force || now !== last) {
       report(await compile({ log }), log);
+      if (pushConfigured()) {
+        try {
+          const r = await pushChanged(log);
+          if (r.sent || r.failed) log(`[${stamp()}] pushed ${r.sent} file(s) to the site${r.failed ? `, ${r.failed} failed` : ''}`);
+        } catch (e) {
+          log(`[${stamp()}] push failed: ${(e as Error).message}`);
+        }
+      }
       last = now;
     }
   } catch (e) {

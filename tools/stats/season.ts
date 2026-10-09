@@ -3,7 +3,7 @@
 import type {
   CarPace, CarSummary, HardestByDriver, HarvestFile, HotspotSummary, IncidentEvent, Result, Round, RoundSplits, Season,
   Standing, TrackDifficulty, TrackDriverRow, TrackPage,
-} from '../../src/lib/shared/types.ts';
+} from '../lib/types.ts';
 import { cmpTuple, maxBy, mean, minBy, mostCommon, pstdev, rnd, slug, sum } from '../lib/util.ts';
 import { computeAwards } from './awards.ts';
 import { hotspotSet, summarize } from './hotspots.ts';

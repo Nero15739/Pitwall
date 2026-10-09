@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { IncidentEvent } from '../../src/lib/shared/types.ts';
+import type { IncidentEvent } from '../lib/types.ts';
 import { summarize } from '../stats/hotspots.ts';
 
 const ev = (pct: number, driver = 'A', team = true): IncidentEvent =>

@@ -13,6 +13,7 @@ interface RawConfig {
   replayDir?: string | null;
   port?: number;
   trackMapSource?: string;
+  site?: string | null;
 }
 
 export interface Config {
@@ -26,6 +27,14 @@ export interface Config {
   replayDir: string | null;
   port: number;
   trackMapSource: string;
+  site: string | null;    // the hosted site (PHP) that tools push to, e.g. https://pitwall.example.com
+}
+
+/** API key for the hosted site: PITWALL_API_KEY, else the first line of .pitwall-key (git-ignored). */
+export function apiKey(): string | null {
+  if (process.env.PITWALL_API_KEY?.trim()) return process.env.PITWALL_API_KEY.trim();
+  const f = join(ROOT, '.pitwall-key');
+  return existsSync(f) ? readFileSync(f, 'utf8').split(/\r?\n/)[0].trim() || null : null;
 }
 
 const abs = (p: string) => (isAbsolute(p) ? p : join(ROOT, p));
@@ -58,5 +67,6 @@ export function loadConfig(): Config {
     replayDir: raw.replayDir ? abs(raw.replayDir) : findReplayDir(),
     port: raw.port ?? 8080,
     trackMapSource: raw.trackMapSource ?? 'https://raw.githubusercontent.com/xikxp1/iRaceHUD/main/static/track_info_data/',
+    site: (process.env.PITWALL_SITE || raw.site)?.replace(/\/+$/, '') || null,
   };
 }

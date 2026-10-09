@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
-import type { HarvestFile, IncidentEvent, Season, SeasonIndex, TrackInfo, TracksFile } from '../src/lib/shared/types.ts';
+import type { HarvestFile, IncidentEvent, Season, SeasonIndex, TrackInfo, TracksFile } from './lib/types.ts';
 import { type Config, loadConfig } from './lib/config.ts';
 import { atomicWrite, fileSig } from './lib/util.ts';
 import { hotspotSet } from './stats/hotspots.ts';

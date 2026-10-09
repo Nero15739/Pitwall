@@ -1,6 +1,6 @@
 /* Incident markers → hotspot density around the lap and the top clusters.
    Everything wraps at the start/finish line, so the lap is treated as a circle. */
-import { HOTSPOT_BINS, type Hotspot, type HotspotSet, type HotspotSummary, type IncidentEvent } from '../../src/lib/shared/types.ts';
+import { HOTSPOT_BINS, type Hotspot, type HotspotSet, type HotspotSummary, type IncidentEvent } from '../lib/types.ts';
 import { rnd } from '../lib/util.ts';
 
 const B = HOTSPOT_BINS;
