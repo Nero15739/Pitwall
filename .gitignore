@@ -12,3 +12,9 @@ node_modules/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+# Pit Wall web (PHP): database, compiled data, logs and secrets stay on the server
+/web/storage/
+/web/config.php
+# API key for pushing from this PC
+.pitwall-key
+/dist/

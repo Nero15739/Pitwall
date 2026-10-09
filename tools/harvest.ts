@@ -13,11 +13,12 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { HarvestFile, Season, SeasonIndex } from '../src/lib/shared/types.ts';
+import type { HarvestFile, Season, SeasonIndex } from './lib/types.ts';
 import { IncidentDetector } from './incidentdetector.ts';
 import { broadcast, Broadcast, type Frame, IRSDK, TrackSurface } from './irsdk.ts';
 import { loadConfig } from './lib/config.ts';
 import { atomicWrite } from './lib/util.ts';
+import { pushConfigured, pushFiles, siteStatus } from './push.ts';
 import { SplitTimer } from './splittimer.ts';
 
 const cfg = loadConfig();
@@ -51,9 +52,22 @@ function seasonRaces(): RaceRef[] {
 const outPath = (sub: number) => join(cfg.incidentsDir, `incidents-${sub}.json`);
 const replayPath = (sub: number) => (cfg.replayDir ? join(cfg.replayDir, `subses${sub}.rpy`) : null);
 
-function pending() {
-  const races = seasonRaces();
-  if (!races.length) return say('No compiled season data yet. Run "npm run compile" first.');
+/** The hosted site's races when it's set up (it's the source of truth), else the local compile. */
+async function knownRaces(): Promise<RaceRef[]> {
+  if (pushConfigured()) {
+    try {
+      const s = await siteStatus();
+      return s.seasons.flatMap(season => season.races.map((r, i) => ({ season: season.name, round: i + 1, track: r.track, subsession: r.subsession })));
+    } catch (e) {
+      say(`Couldn't reach ${cfg.site} (${(e as Error).message}); using local data.\n`);
+    }
+  }
+  return seasonRaces();
+}
+
+async function pending() {
+  const races = await knownRaces();
+  if (!races.length) return say('No season data yet. Upload a race to the site, or run "npm run compile".');
   const replays = new Set(cfg.replayDir && existsSync(cfg.replayDir)
     ? readdirSync(cfg.replayDir).map(f => f.match(/^subses(\d+)\.rpy$/i)?.[1]).filter(Boolean).map(Number)
     : []);
@@ -242,6 +256,14 @@ async function harvest(expectSub?: number) {
     say(`Done in ${((Date.now() - t0) / 1000).toFixed(0)} s: ${pass.laps.length} laps timed, ${incidents.length} incidents (${humans.length} by human drivers)`);
     if (top.length) say(`  ${top.slice(0, 6).map(x => `${x.n} ${x.k}`).join(' · ')}`);
     say(`  Saved ${outPath(sub)}`);
+    if (pushConfigured()) {
+      say(`  Uploading to ${cfg.site}…`);
+      try {
+        await pushFiles([outPath(sub)], { log: say });
+      } catch (e) {
+        say(`  Upload failed: ${(e as Error).message}. Run "npm run push -- --all" to retry.`);
+      }
+    }
   } finally {
     sdk.close();
   }
@@ -250,7 +272,7 @@ async function harvest(expectSub?: number) {
 // ---------------------------------------------------------------- main
 try {
   if (flag('--pending')) {
-    pending();
+    await pending();
   } else if (opt('--open')) {
     const sub = Number(opt('--open'));
     const p = replayPath(sub);

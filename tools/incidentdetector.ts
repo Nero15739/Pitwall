@@ -3,7 +3,7 @@
    Tuned on a full race at 16× replay speed: per-driver counts tracked the official incident
    points with a correlation of 0.90, with at most two false alarms on any clean car. */
 
-import type { IncidentKind } from '../src/lib/shared/types.ts';
+import type { IncidentKind } from './lib/types.ts';
 export interface DetectedIncident { car: number; t: number; pct: number; lap: number; kind: IncidentKind; off: boolean }
 
 const ON_TRACK = 3, OFF_TRACK = 0;

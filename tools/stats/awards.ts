@@ -1,5 +1,5 @@
 /* Season awards: the numbers behind the bragging rights. */
-import type { Award, Result, Round, Standing } from '../../src/lib/shared/types.ts';
+import type { Award, Result, Round, Standing } from '../lib/types.ts';
 import { cmpTuple, maxBy, mean, minBy, mostCommon } from '../lib/util.ts';
 
 const f = (x: number, d: number) => x.toFixed(d);

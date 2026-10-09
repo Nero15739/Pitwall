@@ -2,7 +2,7 @@
    laps, and a plain-language analysis of where each driver gains and loses time. */
 import type {
   DriverSplitAnalysis, DriverSplits, HarvestFile, RoundSplits, SplitAnalysis, SplitInsight,
-} from '../../src/lib/shared/types.ts';
+} from '../lib/types.ts';
 import { mean, rnd, sum } from '../lib/util.ts';
 import type { Race } from './race.ts';
 
