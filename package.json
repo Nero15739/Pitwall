@@ -1,0 +1,42 @@
+{
+  "name": "pitwall",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pit Wall: iRacing league dashboard with track maps and replay-harvested incident hotspots",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p tools",
+    "compile": "node tools/compile.ts",
+    "watch": "node tools/watch.ts",
+    "harvest": "node tools/harvest.ts",
+    "test": "node --test \"tools/test/*.test.ts\""
+  },
+  "dependencies": {
+    "yaml": "^2.9.1"
+  },
+  "optionalDependencies": {
+    "koffi": "^3.3.2"
+  },
+  "devDependencies": {
+    "@lucide/svelte": "^1.52.0",
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.70.3",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.19.1",
+    "clsx": "^2.1.1",
+    "sirv": "^3.0.2",
+    "svelte": "^5.57.1",
+    "svelte-check": "^4.7.6",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.2"
+  }
+}

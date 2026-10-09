@@ -1,0 +1,40 @@
+# Pit Wall v2 - nginx server block. deploy/setup.ps1 fills in {{PORT}}, {{APP}} and {{DATA}};
+# on Linux, copy it into sites-enabled with real paths (and listen on the port your tunnel targets).
+server {
+    listen       127.0.0.1:{{PORT}};     # this machine only; the tunnel connects locally
+    server_name  _;
+    charset utf-8;
+
+    root  "{{APP}}";                     # the built web app (public/app)
+    index index.html;
+
+    gzip on;
+    gzip_types application/json application/javascript text/css image/svg+xml;
+    gzip_min_length 1024;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "same-origin" always;
+
+    # compiled stats: the browser keeps a copy but revalidates each load (ETag), so new races show at once
+    location /data/ {
+        alias "{{DATA}}/";
+        add_header Cache-Control "no-cache" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        etag on;
+    }
+
+    # hashed build assets never change: cache for a year
+    location /_app/immutable/ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    location ~ /\. { deny all; }
+
+    # single-page app: every route serves index.html, which is always revalidated
+    location / {
+        add_header Cache-Control "no-cache" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri $uri/ /index.html;
+    }
+}

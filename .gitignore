@@ -1,0 +1,14 @@
+# race exports, harvested incidents, overrides (yours, not the code's)
+/data/
+# built site: UI in public/app, compiled JSON in public/data
+/public/
+# caches
+.cache/
+.svelte-kit/
+node_modules/
+# logs
+*.log
+# python leftovers / notebook checkpoints
+__pycache__/
+*.pyc
+.ipynb_checkpoints/

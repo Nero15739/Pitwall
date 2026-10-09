@@ -1,0 +1,7 @@
+{
+  "dataDir": "data",
+  "outDir": "public",
+  "replayDir": null,
+  "port": 8080,
+  "trackMapSource": "https://raw.githubusercontent.com/xikxp1/iRaceHUD/main/static/track_info_data/"
+}
