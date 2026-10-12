@@ -25,6 +25,7 @@ $Root      = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path
 $Startup   = Join-Path ([Environment]::GetFolderPath('Startup')) 'PitWall.vbs'
 $OldHome   = Join-Path $env:LOCALAPPDATA 'pitwall-nginx'          # the v2 local web server
 $KeyFile   = Join-Path $Root '.pitwall-key'
+$EnvFile   = Join-Path $Root '.env'
 $Config    = Join-Path $Root 'pitwall.config.json'
 
 function Say($msg, $color = 'Gray') { Write-Host $msg -ForegroundColor $color }
@@ -79,8 +80,9 @@ if ($Key) {
     Write-NoBom $KeyFile "$Key`n"
     Say '  Saved the API key in .pitwall-key (git-ignored)'
 }
-$siteSet = (Get-Content $Config -Raw | ConvertFrom-Json).site
-$keySet = $env:PITWALL_API_KEY -or (Test-Path $KeyFile)
+$dotenv = if (Test-Path $EnvFile) { Get-Content $EnvFile -Raw } else { '' }      # the tools read .env too
+$siteSet = $env:PITWALL_SITE -or ($dotenv -match '(?m)^\s*PITWALL_SITE\s*=\s*\S') -or (Get-Content $Config -Raw | ConvertFrom-Json).site
+$keySet = $env:PITWALL_API_KEY -or ($dotenv -match '(?m)^\s*PITWALL_API_KEY\s*=\s*\S') -or (Test-Path $KeyFile)
 if ($siteSet -and $keySet) {
     Push-Location $Root
     try { & $node tools/push.ts --status } finally { Pop-Location }

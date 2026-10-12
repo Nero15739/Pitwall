@@ -152,6 +152,14 @@ connection, and starts the **watcher** hidden at login. The watcher pushes every
 into `data\<season>\` and every new harvest. It also retires the v2 local web server (nginx and the
 Cloudflare tunnel) if it's still installed; add `-RemoveOldServer` to delete it.
 
+The address and key can live in a `.env` file in this folder instead (git-ignored, read by every tool;
+variables already set in the environment win):
+
+```
+PITWALL_SITE=https://your-domain
+PITWALL_API_KEY=pw_your_key
+```
+
 | | |
 |---|---|
 | `npm run push -- --all` | push everything under `data/` that the site doesn't have yet |

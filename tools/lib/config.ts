@@ -1,11 +1,16 @@
 /* Paths and settings from pitwall.config.json. Relative paths resolve against the repo root,
-   so the code can move out of OneDrive while the data stays put (or the other way round). */
+   so the code can move out of OneDrive while the data stays put (or the other way round).
+   This PC's connection to the hosted site (PITWALL_SITE, PITWALL_API_KEY) can live in .env
+   beside it (git-ignored); variables already set in the environment win. */
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+const ENV_FILE = join(ROOT, '.env');
+if (existsSync(ENV_FILE)) process.loadEnvFile(ENV_FILE);
 
 interface RawConfig {
   dataDir?: string;
@@ -30,7 +35,7 @@ export interface Config {
   site: string | null;    // the hosted site (PHP) that tools push to, e.g. https://pitwall.example.com
 }
 
-/** API key for the hosted site: PITWALL_API_KEY, else the first line of .pitwall-key (git-ignored). */
+/** API key for the hosted site: PITWALL_API_KEY (environment or .env), else the first line of .pitwall-key (git-ignored). */
 export function apiKey(): string | null {
   if (process.env.PITWALL_API_KEY?.trim()) return process.env.PITWALL_API_KEY.trim();
   const f = join(ROOT, '.pitwall-key');

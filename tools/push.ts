@@ -10,8 +10,9 @@
    Race results go into the season named by their folder under data/ (data/Europe/… → "Europe"),
    and so does that folder's schedule.json: the rounds still to come.
    Needs "site" in pitwall.config.json and an API key, made in the site's admin panel under
-   API keys, in PITWALL_API_KEY or the first line of .pitwall-key (git-ignored). The harvester and
-   the watcher push new files by themselves once both are set. */
+   API keys, in PITWALL_API_KEY or the first line of .pitwall-key (git-ignored). Or keep both in
+   .env (git-ignored) as PITWALL_SITE and PITWALL_API_KEY. The harvester and the watcher push
+   new files by themselves once both are set. */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -41,8 +42,8 @@ export const pushConfigured = () => Boolean(cfg.site && apiKey());
 
 async function api(method: string, path: string, body?: Buffer, headers: Record<string, string> = {}) {
   const key = apiKey();
-  if (!cfg.site) throw new Error('Set "site" in pitwall.config.json to your Pit Wall address, e.g. "site": "https://pitwall.example.com".');
-  if (!key) throw new Error("No API key. Create one in the site's admin panel (API keys), then save it as the only line of .pitwall-key.");
+  if (!cfg.site) throw new Error('Set PITWALL_SITE in .env (or "site" in pitwall.config.json) to your Pit Wall address, e.g. https://pitwall.example.com.');
+  if (!key) throw new Error("No API key. Create one in the site's admin panel (API keys), then save it as PITWALL_API_KEY in .env (or as the only line of .pitwall-key).");
   const res = await fetch(`${cfg.site}/api/v1${path}`, {
     method, body, headers: { Authorization: `Bearer ${key}`, Accept: 'application/json', ...headers },
     signal: AbortSignal.timeout(120_000),
