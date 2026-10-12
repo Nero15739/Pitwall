@@ -16,10 +16,11 @@ export interface SeasonInput {
   name: string;
   races: Race[];
   colorOf: (driver: string) => number;
-  /** harvested replays per subsession: incident markers matched to drivers, plus any sector splits */
+  /** harvested replays per subsession: incident markers matched to drivers, plus any sector splits
+      and lap chart (customer IDs in the order they completed each lap) */
   incidents: Map<number, {
     events: Omit<IncidentEvent, 'round'>[]; length_m: number | null;
-    splits?: HarvestFile['splits']; raw: HarvestFile['incidents'];
+    splits?: HarvestFile['splits']; raw: HarvestFile['incidents']; order?: number[][];
   }>;
   generated: string;
   /** cleaned schedule entries (normalizeSchedule), empty when the season has no schedule file */
@@ -67,6 +68,14 @@ export function buildSeason({ name, races, colorOf, incidents, generated, schedu
     const teamFinish = new Map([...team].sort((a, b) => a.finish - b.finish).map((e, k) => [e.cust_id, k + 1]));
     const teamQual = new Map(team.filter(e => e.qual).sort((a, b) => a.qual! - b.qual!).map((e, k) => [e.cust_id, k + 1]));
 
+    // laps each car ran last on track: the final one across the line that lap (needs the replay's lap chart)
+    const order = incidents.get(r.subsession)?.order;
+    const lastLaps = new Map<number, number>();
+    for (const lap of order ? order.slice(0, r.race_laps ?? order.length) : []) {
+      const tail = lap[lap.length - 1];
+      if (lap.length > 1) lastLaps.set(tail, (lastLaps.get(tail) ?? 0) + 1);
+    }
+
     const teamInc = sum(team.map(e => e.inc));
     const teamLaps = sum(team.map(e => e.laps));
     rounds.push({
@@ -109,6 +118,7 @@ export function buildSeason({ name, races, colorOf, incidents, generated, schedu
         team_qual: teamQual.get(e.cust_id) ?? null,
         gained: e.start - e.finish,
         laps: e.laps, laps_led: e.laps_led,
+        laps_last: order ? (lastLaps.get(e.cust_id) ?? 0) : null,
         best: e.best, best_lap_num: e.best_lap_num, avg: e.avg,
         qual: e.qual, qual_rank: e.qual_rank, prac: e.prac,
         inc: e.inc,
@@ -148,6 +158,7 @@ export function buildSeason({ name, races, colorOf, incidents, generated, schedu
       avg_start: rnd(mean(xs.map(x => x.start)), 2),
       avg_gained: rnd(mean(xs.map(x => x.gained)), 2),
       laps, laps_led: sum(xs.map(x => x.laps_led)),
+      laps_last: sum(xs.map(x => x.laps_last ?? 0)),
       inc, inc_per_race: rnd(inc / xs.length, 2),
       inc_per_lap: laps ? rnd(inc / laps, 4) : null,
       avg_gap_team_pct: rnd(mean(xs.map(x => x.gap_team_pct))),

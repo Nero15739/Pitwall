@@ -62,6 +62,15 @@ final class Season
             $teamQual = [];
             foreach ($q as $k => $e) $teamQual[$e['cust_id']] = $k + 1;
 
+            // laps each car ran last on track: the final one across the line that lap (needs the replay's lap chart)
+            $order = $incidents[$r['subsession']]['order'] ?? null;
+            $lastLaps = [];
+            foreach ($order !== null ? array_slice($order, 0, $r['race_laps'] ?? count($order)) : [] as $lap) {
+                if (count($lap) < 2) continue;
+                $tail = $lap[count($lap) - 1];
+                $lastLaps[$tail] = ($lastLaps[$tail] ?? 0) + 1;
+            }
+
             $teamInc = Num::sum(array_column($team, 'inc'));
             $teamLaps = Num::sum(array_column($team, 'laps'));
             $rounds[] = [
@@ -104,6 +113,7 @@ final class Season
                     'team_qual' => $teamQual[$e['cust_id']] ?? null,
                     'gained' => $e['start'] - $e['finish'],
                     'laps' => $e['laps'], 'laps_led' => $e['laps_led'],
+                    'laps_last' => $order !== null ? ($lastLaps[$e['cust_id']] ?? 0) : null,
                     'best' => $e['best'], 'best_lap_num' => $e['best_lap_num'], 'avg' => $e['avg'],
                     'qual' => $e['qual'], 'qual_rank' => $e['qual_rank'], 'prac' => $e['prac'],
                     'inc' => $e['inc'],
@@ -146,6 +156,7 @@ final class Season
                 'avg_start' => Num::rnd(Num::mean($col('start')), 2),
                 'avg_gained' => Num::rnd(Num::mean($col('gained')), 2),
                 'laps' => $laps, 'laps_led' => Num::sum($col('laps_led')),
+                'laps_last' => Num::sum(array_map(fn($x) => $x['laps_last'] ?? 0, $xs)),
                 'inc' => $inc, 'inc_per_race' => Num::rnd($inc / count($xs), 2),
                 'inc_per_lap' => $laps ? Num::rnd($inc / $laps, 4) : null,
                 'avg_gap_team_pct' => Num::rnd(Num::mean($col('gap_team_pct'))),

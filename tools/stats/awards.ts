@@ -50,6 +50,9 @@ export function computeAwards(results: Result[], rounds: Round[], standings: Sta
   s = maxBy(standings, s => s.laps_led)!;
   if (s.laps_led) add('leader', 'Front Runner', 'crown', s.driver, `${s.laps_led}`, 'laps led this season');
 
+  s = maxBy(standings, s => s.laps_last)!;
+  if (s.laps_last) add('tail', 'Tail Gunner', 'anchor', s.driver, `${s.laps_last}`, 'laps run last on track, in the rounds with a harvested replay');
+
   s = maxBy(standings, s => s.ai_beaten)!;
   add('ai', 'AI Slayer', 'robot', s.driver, `${s.ai_beaten}`, 'AI cars finished ahead of, all season');
 

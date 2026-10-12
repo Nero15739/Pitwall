@@ -43,7 +43,7 @@ final class Compiler
                 if ($h) {
                     $incidents[$r['subsession']] = [
                         'events' => self::matchIncidents($r, $h), 'length_m' => $h['track']['length_m'] ?? null,
-                        'splits' => $h['splits'] ?? null, 'raw' => $h['incidents'],
+                        'splits' => $h['splits'] ?? null, 'raw' => $h['incidents'], 'order' => self::lapOrder($h),
                     ];
                 }
             }
@@ -117,6 +117,17 @@ final class Compiler
                 'lap' => $i['lap'], 't' => $i['t'], 'kind' => $i['kind'] ?? ($i['off_track'] ? 'off' : 'spin'), 'off' => $i['off_track'],
             ];
         }, $h['incidents']);
+    }
+
+    /** The replay's lap chart with each car as its customer ID, the way the race export knows it. */
+    private static function lapOrder(array $h): ?array
+    {
+        if (!is_array($h['lap_order'] ?? null)) return null;
+        $ids = array_column($h['drivers'] ?? [], 'cust_id', 'car_idx');
+        return array_map(
+            fn($lap) => array_values(array_filter(array_map(fn($car) => $ids[$car] ?? null, (array) $lap), fn($id) => $id !== null)),
+            $h['lap_order'],
+        );
     }
 
     // ---------------------------------------------------------------- with storage

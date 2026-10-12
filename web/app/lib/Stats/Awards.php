@@ -60,6 +60,9 @@ final class Awards
         $s = Num::maxBy($standings, fn($s) => $s['laps_led']);
         if ($s['laps_led']) $add('leader', 'Front Runner', 'crown', $s['driver'], (string) $s['laps_led'], 'laps led this season');
 
+        $s = Num::maxBy($standings, fn($s) => $s['laps_last']);
+        if ($s['laps_last']) $add('tail', 'Tail Gunner', 'anchor', $s['driver'], (string) $s['laps_last'], 'laps run last on track, in the rounds with a harvested replay');
+
         $s = Num::maxBy($standings, fn($s) => $s['ai_beaten']);
         $add('ai', 'AI Slayer', 'robot', $s['driver'], (string) $s['ai_beaten'], 'AI cars finished ahead of, all season');
 

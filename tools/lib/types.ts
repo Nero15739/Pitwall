@@ -72,6 +72,7 @@ export interface Result {
   round: number; driver: string; car: string; irating: number | null;
   start: number; finish: number; team_finish: number; team_qual: number | null;
   gained: number; laps: number; laps_led: number;
+  laps_last: number | null; // laps run last on track, from the replay's lap chart (null when the round has none)
   best: number | null; best_lap_num: number; avg: number | null;
   qual: number | null; qual_rank: number | null; prac: number | null;
   inc: number; inc_per_lap: number | null;
@@ -88,7 +89,7 @@ export interface Standing {
   points: number; races: number; wins: number; podiums: number; team_wins: number; poles: number;
   team_fastest_laps: number; best_finish: number;
   avg_finish: number | null; avg_team_finish: number | null; avg_start: number | null; avg_gained: number | null;
-  laps: number; laps_led: number; inc: number; inc_per_race: number | null; inc_per_lap: number | null;
+  laps: number; laps_led: number; laps_last: number; inc: number; inc_per_race: number | null; inc_per_lap: number | null;
   avg_gap_team_pct: number | null; avg_gap_field_pct: number | null; avg_consistency_pct: number | null;
   ai_beaten: number; dnfs: number; cars: Record<string, number>; finish_std: number | null;
   gap_to_leader: number;
@@ -315,6 +316,8 @@ export interface HarvestFile {
     car_idx: number; cust_id: number; name: string; ai: boolean; off_track: boolean;
     kind: IncidentKind;
   }[];
+  /** lap chart: cars (car_idx) in the order they completed each race lap, [0] is lap 1 (absent in older files) */
+  lap_order?: number[][];
   /** sector crossing times from a fast-forward pass over the race (absent if skipped) */
   splits?: {
     sectors: number[];          // SplitTimeInfo sector starts (lap distance), first is 0

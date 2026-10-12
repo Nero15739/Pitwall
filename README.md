@@ -229,6 +229,10 @@ compiler against the TypeScript one, value by value).
   AI cars' finishes against the team's rated drivers would be par, on iRacing's own rating curve
   (1600 points doubles the odds). AI cars are grouped by how many team drivers they beat. One race
   is a small sample: a guide to how tough the grid was, not a measurement.
+- Tail Gunner counts the laps a driver ran last on track (the final car across the line that lap,
+  AI included). It needs the lap chart the harvester takes from the replay, so only rounds
+  harvested since v3.2 count: redo older ones with `npm run harvest -- --open <subsession> --force`.
+  Checked on one race: the chart's last lap matched the official finishing order for all 26 cars.
 - The Participation Trophy goes to every driver with no other award.
 - The heat map gathers the incidents spotted in the replay into spots around the lap, sized so the
   circles never run into each other on screen, for the team, the whole field or one driver. Telemetry shows

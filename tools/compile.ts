@@ -72,6 +72,12 @@ function matchIncidents(race: Race, h: HarvestFile): Omit<IncidentEvent, 'round'
   });
 }
 
+/** The replay's lap chart with each car as its customer ID, the way the race export knows it. */
+function lapOrder(h: HarvestFile): number[][] | undefined {
+  const ids = new Map(h.drivers.map(d => [d.car_idx, d.cust_id]));
+  return h.lap_order?.map(lap => lap.map(car => ids.get(car)).filter((id): id is number => id !== undefined));
+}
+
 export interface CompileResult { seasons: number; races: number; changed: number; errors: string[]; ms: number }
 
 export async function compile({ force = false, log = console.log } = {}): Promise<CompileResult> {
@@ -138,7 +144,7 @@ export async function compile({ force = false, log = console.log } = {}): Promis
     const incidents: Parameters<typeof buildSeason>[0]['incidents'] = new Map();
     for (const r of races) {
       const h = harvests.get(r.subsession);
-      if (h) incidents.set(r.subsession, { events: matchIncidents(r, h), length_m: h.track.length_m, splits: h.splits, raw: h.incidents });
+      if (h) incidents.set(r.subsession, { events: matchIncidents(r, h), length_m: h.track.length_m, splits: h.splits, raw: h.incidents, order: lapOrder(h) });
     }
     const season = buildSeason({ name, races, colorOf, incidents, generated, schedule: schedules.get(name) ?? [], known });
     built.push(season);

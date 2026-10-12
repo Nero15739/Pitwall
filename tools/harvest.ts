@@ -7,7 +7,8 @@
      npm run harvest -- --force          re-harvest even if a file already exists
 
    One pass: the race plays at 16× while every car is timed across the track's official sector
-   lines and watched for incidents (leaving the circuit, or rolling backwards in a spin).
+   lines, placed on a lap chart (who was where at the end of each lap), and watched for incidents
+   (leaving the circuit, or rolling backwards in a spin).
    Takes about race length ÷ 16. Output: data/incidents/incidents-<subsession>.json, which the
    watcher compiles automatically. */
 import { spawn } from 'node:child_process';
@@ -16,6 +17,7 @@ import { join } from 'node:path';
 import type { HarvestFile, Season, SeasonIndex } from './lib/types.ts';
 import { IncidentDetector } from './incidentdetector.ts';
 import { broadcast, Broadcast, type Frame, IRSDK, TrackSurface } from './irsdk.ts';
+import { LapChart } from './lapchart.ts';
 import { loadConfig } from './lib/config.ts';
 import { atomicWrite } from './lib/util.ts';
 import { pushConfigured, pushFiles, siteStatus } from './push.ts';
@@ -147,10 +149,11 @@ const progress = (s: string) => process.stdout.write(`\r${s.padEnd(72)}`);
 const endProgress = () => process.stdout.write(`\r${' '.repeat(72)}\r`);
 
 // ---------------------------------------------------------------- the 16× pass
-/** Play the race fast and, from the same samples, time sectors and spot incidents. */
+/** Play the race fast and, from the same samples, time sectors, chart the laps and spot incidents. */
 async function fastPass(sdk: IRSDK, raceNum: number, sectors: number[], byIdx: Map<number, Driver>) {
   const laps: NonNullable<HarvestFile['splits']>['laps'] = [];
   const timer = new SplitTimer(sectors);
+  const chart = new LapChart();
   const detector = new IncidentDetector();
   const frameOf: number[] = [];
   await broadcast(Broadcast.ReplaySetPlaySpeed, FAST, 0);
@@ -172,6 +175,7 @@ async function fastPass(sdk: IRSDK, raceNum: number, sectors: number[], byIdx: M
     const before = detector.incidents.length;
     for (const [idx, drv] of byIdx) {
       const p = Number(pct[idx]), surf = Number(surface[idx]), onPit = Boolean(pitRoad[idx]), lap = Number(lapNo[idx]);
+      chart.update(idx, t, p >= 0 ? p : -1, lap);
       if (!(p >= 0) || surf === TrackSurface.NotInWorld) { timer.forget(idx); detector.update(idx, t, -1, -1, false, lap); continue; }
       for (const l of timer.update(idx, p, t, lap, onPit)) {
         laps.push({ car_idx: idx, cust_id: drv.cust_id, lap: l.lap, start: l.start, sectors: l.sectors, lap_time: l.lap_time, pit: l.pit });
@@ -186,7 +190,7 @@ async function fastPass(sdk: IRSDK, raceNum: number, sectors: number[], byIdx: M
   }
   await broadcast(Broadcast.ReplaySetPlaySpeed, 0, 0);
   endProgress();
-  return { laps, incidents: detector.incidents.map((e, k) => ({ ...e, frame: frameOf[k] })) };
+  return { laps, order: chart.order(), incidents: detector.incidents.map((e, k) => ({ ...e, frame: frameOf[k] })) };
 }
 
 // ---------------------------------------------------------------- harvest
@@ -245,6 +249,7 @@ async function harvest(expectSub?: number) {
       session: { num: race.SessionNum, type: race.SessionType },
       drivers,
       incidents,
+      lap_order: pass.order,
       splits: { sectors, laps: pass.laps },
     };
     atomicWrite(outPath(sub), file);
@@ -253,7 +258,7 @@ async function harvest(expectSub?: number) {
     const humans = incidents.filter(i => !i.ai);
     const top = Object.entries(Object.groupBy(humans, i => i.name))
       .map(([n, xs]) => ({ n, k: xs!.length })).sort((a, b) => b.k - a.k);
-    say(`Done in ${((Date.now() - t0) / 1000).toFixed(0)} s: ${pass.laps.length} laps timed, ${incidents.length} incidents (${humans.length} by human drivers)`);
+    say(`Done in ${((Date.now() - t0) / 1000).toFixed(0)} s: ${pass.laps.length} laps timed, ${pass.order.length} laps charted, ${incidents.length} incidents (${humans.length} by human drivers)`);
     if (top.length) say(`  ${top.slice(0, 6).map(x => `${x.n} ${x.k}`).join(' · ')}`);
     say(`  Saved ${outPath(sub)}`);
     if (pushConfigured()) {
