@@ -229,10 +229,15 @@ compiler against the TypeScript one, value by value).
   AI cars' finishes against the team's rated drivers would be par, on iRacing's own rating curve
   (1600 points doubles the odds). AI cars are grouped by how many team drivers they beat. One race
   is a small sample: a guide to how tough the grid was, not a measurement.
-- Tail Gunner counts the laps a driver ran last on track (the final car across the line that lap,
-  AI included). It needs the lap chart the harvester takes from the replay, so only rounds
-  harvested since v3.2 count: redo older ones with `npm run harvest -- --open <subsession> --force`.
-  Checked on one race: the chart's last lap matched the official finishing order for all 26 cars.
+- Some awards come from the replay, not the result. The lap chart (who was where at the end of each
+  lap, AI included) gives Tail Gunner (laps run last on track), Team Leader (laps as the first team
+  car), Lap One Hero and Victim (grid to the end of lap 1), Comeback (lowest place at the end of a
+  lap to the finish) and Yo-Yo (laps ended in a different place from the lap before). Only rounds
+  harvested since v3.2 have a chart: redo older ones with
+  `npm run harvest -- --open <subsession> --force`. Checked on one race: the chart's last lap
+  matched the official finishing order for all 26 cars.
+- Sector King counts who holds the team's best time in each timed sector; Lawnmower and Spin Doctor
+  count the off-tracks and spins spotted in replays, which miss what the heat map misses.
 - The Participation Trophy goes to every driver with no other award.
 - The heat map gathers the incidents spotted in the replay into spots around the lap, sized so the
   circles never run into each other on screen, for the team, the whole field or one driver. Telemetry shows

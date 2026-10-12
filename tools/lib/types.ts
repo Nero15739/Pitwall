@@ -72,7 +72,12 @@ export interface Result {
   round: number; driver: string; car: string; irating: number | null;
   start: number; finish: number; team_finish: number; team_qual: number | null;
   gained: number; laps: number; laps_led: number;
-  laps_last: number | null; // laps run last on track, from the replay's lap chart (null when the round has none)
+  // from the replay's lap chart; all null when the round has none
+  laps_last: number | null;       // laps run last on track
+  laps_team_led: number | null;   // laps as the first of the team's cars
+  lap1_pos: number | null;        // place at the end of lap 1
+  low_pos: number | null;         // lowest place at the end of any lap
+  pos_changes: number | null;     // laps ended in a different place from the lap before (lap 1: from the grid)
   best: number | null; best_lap_num: number; avg: number | null;
   qual: number | null; qual_rank: number | null; prac: number | null;
   inc: number; inc_per_lap: number | null;
@@ -89,7 +94,7 @@ export interface Standing {
   points: number; races: number; wins: number; podiums: number; team_wins: number; poles: number;
   team_fastest_laps: number; best_finish: number;
   avg_finish: number | null; avg_team_finish: number | null; avg_start: number | null; avg_gained: number | null;
-  laps: number; laps_led: number; laps_last: number; inc: number; inc_per_race: number | null; inc_per_lap: number | null;
+  laps: number; laps_led: number; laps_last: number; laps_team_led: number; inc: number; inc_per_race: number | null; inc_per_lap: number | null;
   avg_gap_team_pct: number | null; avg_gap_field_pct: number | null; avg_consistency_pct: number | null;
   ai_beaten: number; dnfs: number; cars: Record<string, number>; finish_std: number | null;
   gap_to_leader: number;

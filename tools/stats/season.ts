@@ -68,13 +68,20 @@ export function buildSeason({ name, races, colorOf, incidents, generated, schedu
     const teamFinish = new Map([...team].sort((a, b) => a.finish - b.finish).map((e, k) => [e.cust_id, k + 1]));
     const teamQual = new Map(team.filter(e => e.qual).sort((a, b) => a.qual! - b.qual!).map((e, k) => [e.cust_id, k + 1]));
 
-    // laps each car ran last on track: the final one across the line that lap (needs the replay's lap chart)
+    // the replay's lap chart, when the round has one: who was where at the end of each lap
     const order = incidents.get(r.subsession)?.order;
-    const lastLaps = new Map<number, number>();
-    for (const lap of order ? order.slice(0, r.race_laps ?? order.length) : []) {
+    const chart = order ? order.slice(0, r.race_laps ?? order.length) : null;
+    const teamIds = new Set(team.map(e => e.cust_id));
+    const lastLaps = new Map<number, number>();   // laps run last on track: the final car across the line
+    const teamLed = new Map<number, number>();    // laps as the first of the team's cars
+    for (const lap of chart ?? []) {
       const tail = lap[lap.length - 1];
       if (lap.length > 1) lastLaps.set(tail, (lastLaps.get(tail) ?? 0) + 1);
+      const ours = lap.filter(id => teamIds.has(id));
+      if (ours.length > 1) teamLed.set(ours[0], (teamLed.get(ours[0]) ?? 0) + 1);
     }
+    /** a car's place at the end of each lap it completed */
+    const places = (id: number) => (chart ?? []).map(lap => lap.indexOf(id) + 1).filter(p => p > 0);
 
     const teamInc = sum(team.map(e => e.inc));
     const teamLaps = sum(team.map(e => e.laps));
@@ -111,6 +118,8 @@ export function buildSeason({ name, races, colorOf, incidents, generated, schedu
 
     for (const e of team) {
       const aiBeaten = ents.filter(o => o.ai && o.finish > e.finish).length;
+      const pl = places(e.cust_id);
+      const p1 = chart?.[0]?.indexOf(e.cust_id) ?? -1;
       results.push({
         round: i, driver: e.name, car: e.car, irating: e.irating,
         start: e.start, finish: e.finish,
@@ -118,7 +127,11 @@ export function buildSeason({ name, races, colorOf, incidents, generated, schedu
         team_qual: teamQual.get(e.cust_id) ?? null,
         gained: e.start - e.finish,
         laps: e.laps, laps_led: e.laps_led,
-        laps_last: order ? (lastLaps.get(e.cust_id) ?? 0) : null,
+        laps_last: chart ? (lastLaps.get(e.cust_id) ?? 0) : null,
+        laps_team_led: chart ? (teamLed.get(e.cust_id) ?? 0) : null,
+        lap1_pos: p1 >= 0 ? p1 + 1 : null,
+        low_pos: pl.length ? Math.max(...pl) : null,
+        pos_changes: chart ? pl.filter((p, k) => p !== (k ? pl[k - 1] : e.start)).length : null,
         best: e.best, best_lap_num: e.best_lap_num, avg: e.avg,
         qual: e.qual, qual_rank: e.qual_rank, prac: e.prac,
         inc: e.inc,
@@ -159,6 +172,7 @@ export function buildSeason({ name, races, colorOf, incidents, generated, schedu
       avg_gained: rnd(mean(xs.map(x => x.gained)), 2),
       laps, laps_led: sum(xs.map(x => x.laps_led)),
       laps_last: sum(xs.map(x => x.laps_last ?? 0)),
+      laps_team_led: sum(xs.map(x => x.laps_team_led ?? 0)),
       inc, inc_per_race: rnd(inc / xs.length, 2),
       inc_per_lap: laps ? rnd(inc / laps, 4) : null,
       avg_gap_team_pct: rnd(mean(xs.map(x => x.gap_team_pct))),
@@ -254,8 +268,8 @@ export function buildSeason({ name, races, colorOf, incidents, generated, schedu
   }));
   cars.sort((a, b) => cmpTuple([-a.starts, a.avg_finish || 99], [-b.starts, b.avg_finish || 99]));
 
-  const awards = computeAwards(results, rounds, standings, per);
   const trackPages = buildTrackPages(races, rounds, results, standings, tracks, incidents);
+  const awards = computeAwards(results, rounds, standings, per, trackPages);
 
   return {
     season: name,
