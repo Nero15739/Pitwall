@@ -167,7 +167,8 @@ PITWALL_API_KEY=pw_your_key
 | `npm run push -- --season "Asia" <file>` | push a race into a particular season |
 | `npm run push -- --compile` | republish the site (after updating its code) |
 | `npm run harvest -- --pending` | races still to harvest, and whether the replay is on this PC |
-| `npm run harvest -- --open <subsession>` | open that replay in iRacing and harvest it (uploads when done) |
+| `npm run harvest` | harvest the replay you've launched from the iRacing app (uploads when done) |
+| `npm run harvest -- --all` | harvest every race still missing, one after another as you launch each replay |
 
 Race exports go into the season named after their folder: `data\Europe\eventresult-….json` → "Europe".
 
@@ -177,9 +178,15 @@ Race exports don't say *where* incidents happened, and have no sector times. The
 harvester reads it through the iRacing SDK:
 
 1. `npm run harvest -- --pending` (or `deploy\harvest.bat --pending`) lists what's missing.
-2. `npm run harvest -- --open <subsession>` opens the replay in iRacing and harvests it. Leave iRacing
-   alone until it finishes (about race length ÷ 16).
+2. Launch the replay from the iRacing app (**Replays**), then `npm run harvest`. It waits for the
+   replay to load and harvests it; leave iRacing alone until it finishes (about race length ÷ 16).
+   For several, `npm run harvest -- --all` takes each one as you launch it (close the sim in
+   between); add `--force` to redo races already harvested.
 3. The result is saved in `data\incidents\incidents-<subsession>.json` and uploaded straight away.
+
+The harvester can't open a replay by itself: iRacing only loads one from its own app, which signs
+the launch in. (Starting the sim's .exe with a replay file brings it up unconfigured, asking for
+graphics settings.)
 
 If long jumps in the replay stall, turn off **Replay spooling** in iRacing's replay options.
 
@@ -234,7 +241,7 @@ compiler against the TypeScript one, value by value).
   car), Lap One Hero and Victim (grid to the end of lap 1), Comeback (lowest place at the end of a
   lap to the finish) and Yo-Yo (laps ended in a different place from the lap before). Only rounds
   harvested since v3.2 have a chart: redo older ones with
-  `npm run harvest -- --open <subsession> --force`. Checked on one race: the chart's last lap
+  `npm run harvest -- --all --force`. Checked on one race: the chart's last lap
   matched the official finishing order for all 26 cars.
 - Sector King counts who holds the team's best time in each timed sector; Lawnmower and Spin Doctor
   count the off-tracks and spins spotted in replays, which miss what the heat map misses.

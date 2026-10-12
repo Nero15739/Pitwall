@@ -133,8 +133,8 @@ if (import.meta.main) {
         season.races.forEach((r, i) => console.log(`    R${i + 1} ${r.track.slice(0, 44).padEnd(44)} ${String(r.subsession).padEnd(10)} ${r.harvested ? 'harvested' : 'replay not harvested'}`));
       }
       if (s.pending_harvests.length) {
-        console.log('\nTo harvest (open the replay in iRacing, then):');
-        for (const p of s.pending_harvests) console.log(`  npm run harvest -- --open ${p.subsession}    ${p.season} R${p.round} ${p.track}`);
+        console.log('\nTo harvest: "npm run harvest -- --all", then launch each of these from the iRacing app (Replays):');
+        for (const p of s.pending_harvests) console.log(`  subses${p.subsession}    ${p.season} R${p.round} ${p.track}`);
       }
     } else {
       const named = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--season');

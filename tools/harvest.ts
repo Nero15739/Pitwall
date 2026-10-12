@@ -1,17 +1,20 @@
-/* Replay harvester: crash locations and sector splits from a race replay. Open the replay in
-   iRacing (or use --open), then:
+/* Replay harvester: crash locations and sector splits from a race replay. Launch the replay from
+   the iRacing app (Replays), then:
 
-     npm run harvest                     harvest the replay that's open
-     npm run harvest -- --open 89139124  open that subsession's replay, then harvest it
+     npm run harvest                     harvest the replay that's open (waits for one to load)
+     npm run harvest -- --all            every race still to harvest, one after another as you launch each
+     npm run harvest -- --open 89139124  wait for that subsession's replay, then harvest it
      npm run harvest -- --pending        list season races whose replay hasn't been harvested
-     npm run harvest -- --force          re-harvest even if a file already exists
+     npm run harvest -- --force          re-harvest even if a file already exists (with --all: every replay here)
+
+   The harvester can't open a replay itself: iRacing only loads one from its own app, which signs
+   the launch in. So it waits for you to launch it there.
 
    One pass: the race plays at 16× while every car is timed across the track's official sector
    lines, placed on a lap chart (who was where at the end of each lap), and watched for incidents
    (leaving the circuit, or rolling backwards in a spin).
    Takes about race length ÷ 16. Output: data/incidents/incidents-<subsession>.json, which the
    watcher compiles automatically. */
-import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { HarvestFile, Season, SeasonIndex } from './lib/types.ts';
@@ -36,6 +39,7 @@ const JUMP_TIMEOUT_MS = 1500;    // first wait for a jump to land; retries wait 
 const JUMP_TRIES = 3;
 const READY_GRACE_MS = 1500;     // the replay ignores commands for a moment after loading or seeking
 const WAIT_FOR_SIM_MS = 5 * 60 * 1000;
+const WAIT_FOR_NEXT_MS = 20 * 60 * 1000; // --all: time to close the sim and launch the next replay
 
 type Driver = HarvestFile['drivers'][number];
 
@@ -53,6 +57,10 @@ function seasonRaces(): RaceRef[] {
 
 const outPath = (sub: number) => join(cfg.incidentsDir, `incidents-${sub}.json`);
 const replayPath = (sub: number) => (cfg.replayDir ? join(cfg.replayDir, `subses${sub}.rpy`) : null);
+/** Subsessions with a replay file on this PC. */
+const replaysHere = () => new Set(cfg.replayDir && existsSync(cfg.replayDir)
+  ? readdirSync(cfg.replayDir).map(f => f.match(/^subses(\d+)\.rpy$/i)?.[1]).filter(Boolean).map(Number)
+  : []);
 
 /** The hosted site's races when it's set up (it's the source of truth), else the local compile. */
 async function knownRaces(): Promise<RaceRef[]> {
@@ -70,28 +78,42 @@ async function knownRaces(): Promise<RaceRef[]> {
 async function pending() {
   const races = await knownRaces();
   if (!races.length) return say('No season data yet. Upload a race to the site, or run "npm run compile".');
-  const replays = new Set(cfg.replayDir && existsSync(cfg.replayDir)
-    ? readdirSync(cfg.replayDir).map(f => f.match(/^subses(\d+)\.rpy$/i)?.[1]).filter(Boolean).map(Number)
-    : []);
+  const replays = replaysHere();
   say(`Replay folder: ${cfg.replayDir ?? '(not found; set "replayDir" in pitwall.config.json)'}\n`);
   for (const r of races) {
     const state = existsSync(outPath(r.subsession)) ? 'harvested'
-      : replays.has(r.subsession) ? 'ready     → npm run harvest -- --open ' + r.subsession
+      : replays.has(r.subsession) ? `ready     → launch subses${r.subsession} from the iRacing app`
       : 'no replay';
     say(`  ${r.season} R${r.round} ${r.track.padEnd(32)} ${String(r.subsession).padEnd(10)} ${state}`);
   }
+  if (races.some(r => !existsSync(outPath(r.subsession)) && replays.has(r.subsession)))
+    say('\nLaunch a replay from the iRacing app (Replays), then "npm run harvest". Or "npm run harvest -- --all" and launch them one after another.');
 }
 
 // ---------------------------------------------------------------- sim helpers
-async function waitForReplay(): Promise<IRSDK> {
+/** Wait for a replay to be loaded in the sim. It has to be launched from the iRacing app: see the top of this file. */
+async function waitForReplay(what = 'a replay', timeoutMs = WAIT_FOR_SIM_MS): Promise<IRSDK> {
   const t0 = Date.now();
   let told = false;
   for (;;) {
     const sdk = await IRSDK.open();
     if (sdk?.connected && sdk.sessionInfo()?.WeekendInfo) return sdk;
     sdk?.close();
-    if (Date.now() - t0 > WAIT_FOR_SIM_MS) throw new Error('Timed out waiting for iRacing. Open a replay and try again.');
-    if (!told) { say('Waiting for iRacing with a replay open…'); told = true; }
+    if (Date.now() - t0 > timeoutMs) throw new Error(`Timed out waiting for iRacing. Launch ${what} from the iRacing app (Replays) and try again.`);
+    if (!told) { say(`Waiting for ${what} to be launched from the iRacing app (Replays)…`); told = true; }
+    await sleep(1000);
+  }
+}
+
+/** Wait for the sim to be closed: another replay can only be loaded into a fresh one. */
+async function waitUntilClosed(timeoutMs = WAIT_FOR_NEXT_MS) {
+  const t0 = Date.now();
+  for (;;) {
+    const sdk = await IRSDK.open();
+    const up = Boolean(sdk?.connected);
+    sdk?.close();
+    if (!up) return;
+    if (Date.now() - t0 > timeoutMs) throw new Error('Timed out waiting for the sim to be closed.');
     await sleep(1000);
   }
 }
@@ -195,7 +217,7 @@ async function fastPass(sdk: IRSDK, raceNum: number, sectors: number[], byIdx: M
 
 // ---------------------------------------------------------------- harvest
 async function harvest(expectSub?: number) {
-  const sdk = await waitForReplay();
+  const sdk = await waitForReplay(expectSub ? `subses${expectSub}` : 'a replay');
   try {
     const info = sdk.sessionInfo();
     const wk = info.WeekendInfo ?? {};
@@ -274,16 +296,42 @@ async function harvest(expectSub?: number) {
   }
 }
 
+/** Every race still to harvest (with --force: every race with a replay here), each as it's launched. */
+async function harvestAll() {
+  const here = replaysHere();
+  const left = new Map((await knownRaces())
+    .filter(r => here.has(r.subsession) && (flag('--force') || !existsSync(outPath(r.subsession))))
+    .map(r => [r.subsession, r]));
+  if (!left.size) return say(flag('--force') ? 'No replays for these races on this PC.' : 'Nothing left to harvest. Add --force to redo the ones already done.');
+  const list = () => [...left.values()].map(r => `  ${r.season} R${r.round} ${r.track.padEnd(32)} subses${r.subsession}`).join('\n');
+  say(`${left.size} replay(s) to harvest. Launch any of them from the iRacing app (Replays); each is harvested as it loads:\n${list()}\n`);
+  while (left.size) {
+    const sdk = await waitForReplay('one of them', WAIT_FOR_NEXT_MS);
+    const sub = Number(sdk.sessionInfo().WeekendInfo?.SubSessionID);
+    sdk.close();
+    if (left.has(sub)) {
+      await harvest(sub);
+      left.delete(sub);
+      if (!left.size) break;
+      say(`\n${left.size} to go. Close the sim, then launch the next:\n${list()}\n`);
+    } else {
+      say(`The replay that's open (subsession ${sub || 'unknown'}) isn't one of these. Close the sim, then launch one of:\n${list()}\n`);
+    }
+    await waitUntilClosed();
+  }
+  say('\nAll harvested.');
+}
+
 // ---------------------------------------------------------------- main
 try {
   if (flag('--pending')) {
     await pending();
+  } else if (flag('--all')) {
+    await harvestAll();
   } else if (opt('--open')) {
     const sub = Number(opt('--open'));
     const p = replayPath(sub);
     if (!p || !existsSync(p)) throw new Error(`No replay file for subsession ${sub} in ${cfg.replayDir}`);
-    say(`Opening ${p} in iRacing…`);
-    spawn('explorer.exe', [p], { detached: true, stdio: 'ignore' }).unref(); // opens with the .rpy file association
     await harvest(sub);
   } else {
     await harvest();
