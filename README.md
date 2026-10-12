@@ -184,6 +184,12 @@ harvester reads it through the iRacing SDK:
    between); add `--force` to redo races already harvested.
 3. The result is saved in `data\incidents\incidents-<subsession>.json` and uploaded straight away.
 
+Add `--debug` to watch it work: each incident is printed as it's spotted (time, lap, place on the
+lap, driver), along with every step. Every run is also written to `.cache\harvest.log`, and a run
+that fails says what it was doing and where the replay was. A harvest that was cut short (the
+replay paused, or iRacing closed) saves nothing; one where the replay skipped ahead is saved with a
+warning saying how much was missed.
+
 The harvester can't open a replay by itself: iRacing only loads one from its own app, which signs
 the launch in. (Starting the sim's .exe with a replay file brings it up unconfigured, asking for
 graphics settings.)

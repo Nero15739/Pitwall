@@ -6,6 +6,9 @@
      npm run harvest -- --open 89139124  wait for that subsession's replay, then harvest it
      npm run harvest -- --pending        list season races whose replay hasn't been harvested
      npm run harvest -- --force          re-harvest even if a file already exists (with --all: every replay here)
+     npm run harvest -- --debug          show each incident as it's spotted, and every step (add to any of the above)
+
+   Every run is logged to .cache/harvest.log with its steps, so a failure can be read back.
 
    The harvester can't open a replay itself: iRacing only loads one from its own app, which signs
    the launch in. So it waits for you to launch it there.
@@ -22,6 +25,7 @@ import { IncidentDetector } from './incidentdetector.ts';
 import { broadcast, Broadcast, type Frame, IRSDK, TrackSurface } from './irsdk.ts';
 import { LapChart } from './lapchart.ts';
 import { loadConfig } from './lib/config.ts';
+import { openLog } from './lib/log.ts';
 import { atomicWrite } from './lib/util.ts';
 import { pushConfigured, pushFiles, siteStatus } from './push.ts';
 import { SplitTimer } from './splittimer.ts';
@@ -31,7 +35,11 @@ const args = process.argv.slice(2);
 const flag = (f: string) => args.includes(f);
 const opt = (f: string) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : undefined; };
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-const say = (s: string) => console.log(s);
+const DEBUG = flag('--debug');
+const log = openLog(join(cfg.cacheDir, 'harvest.log'), DEBUG);
+const say = (s: string) => log.say(s);
+/** session time as m:ss */
+const clock = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
 
 const FAST = 16;                 // replay speed (the sim's maximum)
 const SETTLE_TICKS = 3;          // the replay must hold still this many reads after a jump
@@ -122,16 +130,27 @@ const replayFrame = (f: Frame) => f.num('ReplayFrameNum');
 const replaySession = (f: Frame) => (f.has('ReplaySessionNum') ? f.num('ReplaySessionNum') : f.num('SessionNum'));
 const replayTime = (f: Frame) => (f.has('ReplaySessionTime') ? f.num('ReplaySessionTime') : f.num('SessionTime'));
 
+/** Where the replay is right now, for the log and for error messages. */
+function where(sdk: IRSDK) {
+  const f = sdk.frame();
+  return {
+    session: replaySession(f), time: Math.round(replayTime(f) * 10) / 10, frame: replayFrame(f),
+    frames_left: f.num('ReplayFrameNumEnd', -1), speed: f.num('ReplayPlaySpeed', NaN), connected: sdk.connected,
+  };
+}
+
 /** A freshly opened replay ignores commands until it has loaded: wait for that, plus a moment. */
 async function waitUntilReady(sdk: IRSDK) {
   const t0 = Date.now();
-  while (Date.now() - t0 < 60_000) {
+  let ready = false;
+  while (!ready && Date.now() - t0 < 60_000) {
     const tick = sdk.frame().tick;
     sdk.waitForData(250);
     const f = sdk.frame();
-    if (f.num('ReplayFrameNumEnd', 0) > 0 && f.tick !== tick) break;
-    await sleep(250);
+    ready = f.num('ReplayFrameNumEnd', 0) > 0 && f.tick !== tick;
+    if (!ready) await sleep(250);
   }
+  log.detail(`  replay ${ready ? 'ready' : 'still not reporting frames'} after ${((Date.now() - t0) / 1000).toFixed(1)} s: ${JSON.stringify(where(sdk))}`);
   await sleep(READY_GRACE_MS);
 }
 
@@ -153,8 +172,9 @@ async function seekRaceStart(sdk: IRSDK, raceNum: number): Promise<boolean> {
   for (let attempt = 0; attempt < JUMP_TRIES; attempt++) {
     const from = replayFrame(sdk.frame());
     await broadcast(Broadcast.ReplaySearchSessionTime, raceNum, 0);
-    await settle(sdk, from, JUMP_TIMEOUT_MS * (attempt + 1));
+    const landed = await settle(sdk, from, JUMP_TIMEOUT_MS * (attempt + 1));
     await sleep(READY_GRACE_MS);
+    log.detail(`  jump to the race start, try ${attempt + 1}: from frame ${from}, ${landed ? 'landed' : "didn't settle"}: ${JSON.stringify(where(sdk))}`);
     if (replaySession(sdk.frame()) === raceNum) return true;
   }
   return false;
@@ -178,60 +198,90 @@ async function fastPass(sdk: IRSDK, raceNum: number, sectors: number[], byIdx: M
   const chart = new LapChart();
   const detector = new IncidentDetector();
   const frameOf: number[] = [];
+  // how the pass went, for the log and the checks afterwards
+  const steps = new Map<number, number>();           // replay frames between samples → how often (16 at 16×)
+  const jumps: { at: number; s: number }[] = [];     // the replay clock skipping ahead: nothing is seen in between
+  let samples = 0, frameLeft = -1, stoppedAt = -1;
   await broadcast(Broadcast.ReplaySetPlaySpeed, FAST, 0);
 
   let lastFrame = -1, lastT = -1, stalledSince = Date.now(), lastReport = 0;
-  for (;;) {
-    sdk.waitForData(100);
-    const f = sdk.frame();
-    const fr = replayFrame(f);
-    if (replaySession(f) !== raceNum) break;                                 // past the race
-    if (fr === lastFrame) { if (Date.now() - stalledSince > 3000) break; continue; } // end of the replay
-    lastFrame = fr; stalledSince = Date.now();
-    const t = replayTime(f);
-    if (lastT >= 0 && (t < lastT || t - lastT > 3)) detector.reset();      // a seek or a stale clock
-    lastT = t;
-
-    const pct = f.array('CarIdxLapDistPct'), lapNo = f.array('CarIdxLap');
-    const pitRoad = f.array('CarIdxOnPitRoad'), surface = f.array('CarIdxTrackSurface');
-    const before = detector.incidents.length;
-    for (const [idx, drv] of byIdx) {
-      const p = Number(pct[idx]), surf = Number(surface[idx]), onPit = Boolean(pitRoad[idx]), lap = Number(lapNo[idx]);
-      chart.update(idx, t, p >= 0 ? p : -1, lap);
-      if (!(p >= 0) || surf === TrackSurface.NotInWorld) { timer.forget(idx); detector.update(idx, t, -1, -1, false, lap); continue; }
-      for (const l of timer.update(idx, p, t, lap, onPit)) {
-        laps.push({ car_idx: idx, cust_id: drv.cust_id, lap: l.lap, start: l.start, sectors: l.sectors, lap_time: l.lap_time, pit: l.pit });
+  try {
+    for (;;) {
+      sdk.waitForData(100);
+      const f = sdk.frame();
+      const fr = replayFrame(f);
+      if (replaySession(f) !== raceNum) break;                                 // past the race
+      if (fr === lastFrame) {                                                  // end of the replay (or it was stopped)
+        if (Date.now() - stalledSince <= 3000) continue;
+        frameLeft = f.num('ReplayFrameNumEnd', -1); stoppedAt = lastT;
+        break;
       }
-      detector.update(idx, t, p, surf, onPit, lap);
+      if (lastFrame >= 0) steps.set(fr - lastFrame, (steps.get(fr - lastFrame) ?? 0) + 1);
+      lastFrame = fr; stalledSince = Date.now(); samples++;
+      const t = replayTime(f);
+      if (lastT >= 0 && (t < lastT || t - lastT > 3)) detector.reset();      // a seek or a stale clock
+      if (lastT >= 0 && (t < lastT || t - lastT > 1)) {
+        jumps.push({ at: t, s: t - lastT });
+        if (DEBUG) endProgress();
+        log.detail(`    replay clock jumped ${(t - lastT).toFixed(1)} s to ${clock(t)} (frame ${fr})`);
+      }
+      lastT = t;
+
+      const pct = f.array('CarIdxLapDistPct'), lapNo = f.array('CarIdxLap');
+      const pitRoad = f.array('CarIdxOnPitRoad'), surface = f.array('CarIdxTrackSurface');
+      const before = detector.incidents.length;
+      for (const [idx, drv] of byIdx) {
+        const p = Number(pct[idx]), surf = Number(surface[idx]), onPit = Boolean(pitRoad[idx]), lap = Number(lapNo[idx]);
+        chart.update(idx, t, p >= 0 ? p : -1, lap);
+        if (!(p >= 0) || surf === TrackSurface.NotInWorld) { timer.forget(idx); detector.update(idx, t, -1, -1, false, lap); continue; }
+        for (const l of timer.update(idx, p, t, lap, onPit)) {
+          laps.push({ car_idx: idx, cust_id: drv.cust_id, lap: l.lap, start: l.start, sectors: l.sectors, lap_time: l.lap_time, pit: l.pit });
+        }
+        detector.update(idx, t, p, surf, onPit, lap);
+      }
+      for (let k = before; k < detector.incidents.length; k++) {
+        frameOf[k] = fr;
+        // as it's spotted (--debug); a spin moments after an off-track is folded into the same incident later
+        const e = detector.incidents[k];
+        if (DEBUG) endProgress();
+        log.detail(`    ${clock(e.t).padStart(7)}  lap ${String(e.lap).padStart(2)}  ${(e.pct * 100).toFixed(1).padStart(5)}%  ${e.kind === 'spin' ? 'spin     ' : 'off track'}  ${byIdx.get(e.car)?.name ?? `car ${e.car}`}`);
+      }
+      if (Date.now() - lastReport > 1000) {
+        progress(`  ${clock(t)} · ${laps.length} laps timed · ${detector.incidents.length} incidents…`);
+        lastReport = Date.now();
+      }
     }
-    for (let k = before; k < detector.incidents.length; k++) frameOf[k] = fr;
-    if (Date.now() - lastReport > 1000) {
-      progress(`  ${laps.length} laps timed · ${detector.incidents.length} incidents…`);
-      lastReport = Date.now();
-    }
+  } finally {
+    await broadcast(Broadcast.ReplaySetPlaySpeed, 0, 0); // never leave the replay running fast
+    endProgress();
   }
-  await broadcast(Broadcast.ReplaySetPlaySpeed, 0, 0);
-  endProgress();
-  return { laps, order: chart.order(), incidents: detector.incidents.map((e, k) => ({ ...e, frame: frameOf[k] })) };
+  const usual = [...steps].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0;
+  return {
+    laps, order: chart.order(), incidents: detector.incidents.map((e, k) => ({ ...e, frame: frameOf[k] })),
+    samples, usual, jumps, frameLeft, stoppedAt, endedAt: lastT,
+  };
 }
 
 // ---------------------------------------------------------------- harvest
 async function harvest(expectSub?: number) {
   const sdk = await waitForReplay(expectSub ? `subses${expectSub}` : 'a replay');
+  let step = 'reading what the sim has loaded';   // what was being done, for the error message and the log
+  let homeFrame: number | null = null;
   try {
     const info = sdk.sessionInfo();
     const wk = info.WeekendInfo ?? {};
     const sub = Number(wk.SubSessionID);
     const inReplay = String(wk.SimMode ?? '').toLowerCase() === 'replay' || sdk.frame().get('IsReplayPlaying') === true;
-    if (!inReplay) throw new Error('iRacing is in a live session, not a replay. Open the race replay first.');
-    if (!sub) throw new Error('This replay has no subsession ID (test or offline session).');
-    if (expectSub && sub !== expectSub) throw new Error(`The open replay is subsession ${sub}, expected ${expectSub}.`);
+    if (!inReplay) throw new Error('iRacing is in a live session, not a replay. Launch the race replay from the iRacing app (Replays) first.');
+    if (!sub) throw new Error('This replay has no subsession ID (a test or offline session), so it can\'t be matched to a race.');
+    if (expectSub && sub !== expectSub) throw new Error(`The replay that's open is subsession ${sub}, not ${expectSub}. Close the sim and launch subses${expectSub} from the iRacing app.`);
     if (existsSync(outPath(sub)) && !flag('--force'))
       return say(`Subsession ${sub} is already harvested (${outPath(sub)}). Use --force to redo it.`);
 
-    const sessions: { SessionNum: number; SessionType: string }[] = info.SessionInfo?.Sessions ?? [];
+    const sessions: { SessionNum: number; SessionType: string; ResultsLapsComplete?: number }[] = info.SessionInfo?.Sessions ?? [];
     const race = [...sessions].reverse().find(s => /race/i.test(s.SessionType));
-    if (!race) throw new Error('No race session in this replay.');
+    if (!race) throw new Error(`This replay has no race session (it has: ${sessions.map(s => s.SessionType).join(', ') || 'none'}).`);
+    log.detail(`  sim: ${wk.SimMode} · sessions ${sessions.map(s => `${s.SessionNum}:${s.SessionType}`).join(' ')} · race is ${race.SessionNum} · ${JSON.stringify(where(sdk))}`);
     const drivers: Driver[] = (info.DriverInfo?.Drivers ?? [])
       .filter((d: any) => !d.CarIsPaceCar && !d.IsSpectator) // eslint-disable-line @typescript-eslint/no-explicit-any
       .map((d: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -245,15 +295,46 @@ async function harvest(expectSub?: number) {
 
     const cfgName = String(wk.TrackConfigName ?? '').trim();
     say(`Harvesting ${wk.TrackDisplayName}${cfgName ? ` (${cfgName})` : ''} · subsession ${sub} · ${drivers.length} cars`);
+    log.detail(`  track ${wk.TrackID} · ${lengthM ?? '?'} m · sector lines at ${sectors.map(s => s.toFixed(4)).join(', ')} · ${drivers.filter(d => !d.ai).length} drivers + ${drivers.filter(d => d.ai).length} AI`);
     const t0 = Date.now();
+    step = 'waiting for the replay to finish loading';
     await waitUntilReady(sdk);
-    const homeFrame = replayFrame(sdk.frame());
+    homeFrame = replayFrame(sdk.frame());
     await broadcast(Broadcast.ReplaySetPlaySpeed, 0, 0);
-    if (!(await seekRaceStart(sdk, race.SessionNum)))
-      throw new Error("Couldn't move the replay to the start of the race. Check the replay includes the race, then try again.");
+    step = 'moving the replay to the start of the race';
+    if (!(await seekRaceStart(sdk, race.SessionNum))) {
+      const at = where(sdk);
+      throw new Error(`The replay didn't move to the start of the race after ${JUMP_TRIES} tries (it's in session ${at.session}, the race is session ${race.SessionNum}). `
+        + 'Click on the iRacing window once and leave it alone, then run this again; if jumps keep stalling, turn off Replay spooling in iRacing\'s replay options.');
+    }
 
+    step = `playing the race at ${FAST}×`;
     say(`  playing the race at ${FAST}× to time ${sectors.length} sectors and spot incidents (about race length ÷ ${FAST})…`);
+    if (DEBUG) say('    time     lap    lap%  what       who');
     const pass = await fastPass(sdk, race.SessionNum, sectors, byIdx);
+    step = 'checking the pass';
+    log.detail(`  pass: ${pass.samples} samples in ${((Date.now() - t0) / 1000).toFixed(0)} s, usually ${pass.usual} frames apart, ended at ${clock(Math.max(0, pass.endedAt))}`
+      + (pass.frameLeft >= 0 ? `, replay stopped with ${pass.frameLeft} frames left` : ', ran past the race session'));
+    if (!sdk.connected) throw new Error(`iRacing closed while the race was playing (at ${clock(Math.max(0, pass.endedAt))}). Nothing was saved.`);
+    // stopped short of the end of the tape: paused, or the sim lost its place
+    if (pass.frameLeft > 600) {
+      throw new Error(`The replay stopped moving at ${clock(Math.max(0, pass.stoppedAt))} with ${(pass.frameLeft / 60).toFixed(0)} s still to play. `
+        + 'Was it paused or the speed changed? Nothing was saved: run this again and leave iRacing alone until it finishes.');
+    }
+    const warnings: string[] = [];
+    if (pass.usual && pass.usual !== FAST) warnings.push(`the replay mostly ran at ${pass.usual}×, not ${FAST}×: was the speed changed while it played?`);
+    const skips = pass.jumps.filter(j => j.s > 0);
+    if (skips.length) {
+      const worst = skips.reduce((a, b) => (b.s > a.s ? b : a));
+      warnings.push(`the replay skipped ahead ${skips.length} time(s), ${skips.reduce((a, j) => a + j.s, 0).toFixed(0)} s in all (longest ${worst.s.toFixed(1)} s, to ${clock(worst.at)}): `
+        + 'laps and incidents in those stretches are missing. If it keeps happening, turn off Replay spooling in iRacing\'s replay options.');
+    }
+    if (pass.jumps.some(j => j.s < 0)) warnings.push('the replay clock went backwards during the pass: was it rewound?');
+    const raceLaps = Number(race.ResultsLapsComplete);
+    if (raceLaps > 0 && pass.order.length < raceLaps) warnings.push(`the lap chart has ${pass.order.length} of the race's ${raceLaps} laps: the replay may not cover the whole race.`);
+    if (!pass.order.length) warnings.push('no laps were charted, so the lap-chart awards will skip this round.');
+
+    step = 'saving the result';
     const incidents: HarvestFile['incidents'] = pass.incidents.map(e => {
       const d = byIdx.get(e.car)!;
       return {
@@ -276,21 +357,34 @@ async function harvest(expectSub?: number) {
     };
     atomicWrite(outPath(sub), file);
     await broadcast(Broadcast.ReplaySetPlayPosition, 0, homeFrame); // back to where you were
+    homeFrame = null;
 
     const humans = incidents.filter(i => !i.ai);
     const top = Object.entries(Object.groupBy(humans, i => i.name))
       .map(([n, xs]) => ({ n, k: xs!.length })).sort((a, b) => b.k - a.k);
     say(`Done in ${((Date.now() - t0) / 1000).toFixed(0)} s: ${pass.laps.length} laps timed, ${pass.order.length} laps charted, ${incidents.length} incidents (${humans.length} by human drivers)`);
     if (top.length) say(`  ${top.slice(0, 6).map(x => `${x.n} ${x.k}`).join(' · ')}`);
+    for (const w of warnings) say(`  Warning: ${w}`);
     say(`  Saved ${outPath(sub)}`);
     if (pushConfigured()) {
+      step = 'uploading to the site';
       say(`  Uploading to ${cfg.site}…`);
       try {
-        await pushFiles([outPath(sub)], { log: say });
+        const r = await pushFiles([outPath(sub)], { log: say });
+        if (r.failed) say('  The upload was refused (see above). The file is saved here: run "npm run push -- --all" to retry.');
       } catch (e) {
-        say(`  Upload failed: ${(e as Error).message}. Run "npm run push -- --all" to retry.`);
+        log.fail(e, { step });
+        say(`  Upload failed: ${(e as Error).message}. The file is saved here: run "npm run push -- --all" to retry.`);
       }
+    } else {
+      log.detail('  not uploaded: no site address or API key set (see .env)');
     }
+  } catch (e) {
+    // say what was being done and where the replay was, and put the replay back
+    let at: Record<string, unknown> = {};
+    try { at = where(sdk); } catch { /* the sim has gone */ }
+    if (homeFrame !== null) await broadcast(Broadcast.ReplaySetPlayPosition, 0, homeFrame).catch(() => {});
+    throw Object.assign(new Error(`${(e as Error).message}`, { cause: e }), { context: { step, ...at } });
   } finally {
     sdk.close();
   }
@@ -323,6 +417,7 @@ async function harvestAll() {
 }
 
 // ---------------------------------------------------------------- main
+log.detail(`harvest ${args.join(' ') || '(the open replay)'} · node ${process.version} · site ${cfg.site ?? 'not set'} · replays in ${cfg.replayDir ?? 'not found'}`);
 try {
   if (flag('--pending')) {
     await pending();
@@ -337,6 +432,10 @@ try {
     await harvest();
   }
 } catch (e) {
-  console.error(`Harvest failed: ${(e as Error).message}`);
+  const err = e as Error & { context?: Record<string, unknown> };
+  log.fail(err, err.context);
+  console.error(`\nHarvest failed${err.context?.step ? ` while ${err.context.step}` : ''}: ${err.message}`);
+  console.error(`  The full log is in ${log.file}${DEBUG ? '' : ' (add --debug to watch every step as it runs)'}`);
+  if (DEBUG && err.context) console.error(`  The replay was at: ${JSON.stringify(err.context)}`);
   process.exitCode = 1;
 }
