@@ -7,6 +7,7 @@ export interface SeasonIndexEntry {
   slug: string;
   league: string;
   rounds: number;
+  upcoming: number;       // scheduled rounds still to race
   first: string;
   last: string;
   leader: string | null;
@@ -25,6 +26,18 @@ export interface Driver { name: string; color: number }
 export interface CarPace {
   car: string; best: number; by: string; ai: boolean;
   entries: number; avg_best: number | null; gap_pct: number | null;
+}
+
+/** The field a round was raced against. AI cars carry no iRating, so theirs is an estimate from the result. */
+export interface FieldStrength {
+  rated: number;                  // team drivers with an iRating
+  team_sof: number | null;        // strength of field over the team's ratings
+  ai_rating: number | null;       // the rating at which the AI field's finishes against the team would be par
+  ai_low: number | null; ai_high: number | null;
+  sof_est: number | null;         // strength of field with the AI cars at their estimates
+  ai_wins: number; pairs: number; // AI-ahead-of-team-driver match-ups, of all of them
+  ai_median_best: number | null; team_median_best: number | null;
+  groups: { beat: number; cars: number; rating: number }[]; // AI cars by how many team drivers they beat
 }
 
 export interface Round {
@@ -52,10 +65,11 @@ export interface Round {
   cars_used: string[];
   cautions: number;
   harvested: boolean;
+  field: FieldStrength;
 }
 
 export interface Result {
-  round: number; driver: string; car: string;
+  round: number; driver: string; car: string; irating: number | null;
   start: number; finish: number; team_finish: number; team_qual: number | null;
   gained: number; laps: number; laps_led: number;
   best: number | null; best_lap_num: number; avg: number | null;
@@ -70,7 +84,7 @@ export interface Result {
 }
 
 export interface Standing {
-  driver: string; color: number; pos: number;
+  driver: string; color: number; pos: number; irating: number | null;
   points: number; races: number; wins: number; podiums: number; team_wins: number; poles: number;
   team_fastest_laps: number; best_finish: number;
   avg_finish: number | null; avg_team_finish: number | null; avg_start: number | null; avg_gained: number | null;
@@ -102,6 +116,28 @@ export interface CarSummary {
 
 export interface Award {
   key: string; title: string; icon: string; driver: string; value: string; detail: string;
+}
+
+// ---------------------------------------------------------------- calendar
+/** One round of a schedule file (data/<season>/schedule.json), cleaned up. */
+export interface ScheduleEntry {
+  date: string;             // "2026-11-02", or UTC "2026-11-02T08:30:00Z" when a time was given
+  track: string;
+  config: string | null;
+  track_id: number | null;
+  laps: number | null;
+  minutes: number | null;
+  cars: string | null;
+  note: string | null;
+}
+
+export interface CalendarEntry {
+  n: number;                // round number: raced rounds first, then the ones to come
+  status: 'done' | 'upcoming';
+  round: number | null;     // the raced round, when done
+  date: string;
+  track: string; track_short: string; track_id: number | null;
+  laps: number | null; minutes: number | null; cars: string | null; note: string | null;
 }
 
 // ---------------------------------------------------------------- hotspots
@@ -235,6 +271,8 @@ export interface Season {
   cars: CarSummary[];
   awards: Award[];
   track_pages: TrackPage[];
+  calendar: CalendarEntry[];
+  scheduled: boolean;       // a schedule file was supplied
 }
 
 // ---------------------------------------------------------------- track geometry

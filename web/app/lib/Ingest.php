@@ -6,12 +6,14 @@ declare(strict_types=1);
 namespace PitWall;
 
 use PitWall\Stats\Race;
+use PitWall\Stats\Schedule;
 
 final class Ingest
 {
-    /** What kind of file this is: an iRacing event result, a harvested replay, or neither. */
+    /** What kind of file this is: an iRacing event result, a harvested replay, a season schedule, or none of them. */
     public static function detect(array $doc): ?string
     {
+        if (($doc['type'] ?? null) === 'schedule' && is_array($doc['rounds'] ?? null)) return 'schedule';
         if (isset($doc['version'], $doc['subsession'], $doc['incidents']) && is_array($doc['incidents'])) return 'harvest';
         $ev = $doc['data'] ?? $doc;
         if (is_array($ev) && isset($ev['session_results'], $ev['subsession_id'])) return 'result';
@@ -43,8 +45,45 @@ final class Ingest
         return match (self::detect($doc)) {
             'result' => self::result($store, $doc, $json, $season, $filename, $actor),
             'harvest' => self::harvest($store, $doc, $json, $filename, $actor),
-            default => throw new UserError("{$filename}: not an iRacing event result or a harvested replay file."),
+            'schedule' => self::schedule($store, $doc, $season, $filename, $actor),
+            default => throw new UserError("{$filename}: not an iRacing event result, a harvested replay or a season schedule."),
         };
+    }
+
+    /**
+     * A season schedule: {"type": "schedule", "season": "Europe", "rounds": [{"date": "2026-11-02", "track": "…"}]}.
+     * It replaces the season's schedule. Season: the one asked for, else the file's own "season",
+     * else the only season there is.
+     */
+    public static function schedule(Store $store, array $doc, ?string $season, string $filename, string $actor): array
+    {
+        try {
+            $rounds = Schedule::normalize($doc['rounds']);
+        } catch (\InvalidArgumentException $e) {
+            throw new UserError("{$filename}: {$e->getMessage()}.");
+        }
+        if (!$rounds) throw new UserError("{$filename}: the schedule has no rounds. To clear a schedule, delete it under Races.");
+        $season = trim((string) $season);
+        if ($season === '' && is_string($doc['season'] ?? null)) $season = trim($doc['season']);
+        $all = $store->seasons();
+        if ($season !== '') $s = $store->ensureSeason($season);
+        elseif (count($all) === 1) $s = $all[0];
+        else throw new UserError("{$filename}: say which season this schedule is for (pick one when uploading, or add \"season\" to the file).");
+
+        $stored = json_encode($rounds, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $sha = sha1($stored);
+        $summary = ['type' => 'schedule', 'season' => $s['name'], 'season_slug' => $s['slug'], 'rounds' => count($rounds)];
+        if (($store->schedule((int) $s['id'])['sha1'] ?? null) === $sha) return $summary + ['status' => 'unchanged'];
+        $created = $store->saveSchedule((int) $s['id'], [
+            'rounds' => $stored,
+            'n_rounds' => count($rounds),
+            'filename' => mb_substr(basename($filename), 0, 255),
+            'sha1' => $sha,
+            'uploaded_at' => Store::now(),
+            'uploaded_by' => $actor,
+        ]);
+        $store->log($actor, $created ? 'schedule.add' : 'schedule.replace', "{$s['name']} · " . count($rounds) . ' rounds');
+        return $summary + ['status' => $created ? 'created' : 'replaced'];
     }
 
     /**

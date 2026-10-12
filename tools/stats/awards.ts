@@ -118,5 +118,21 @@ export function computeAwards(results: Result[], rounds: Round[], standings: Sta
   s = maxBy(standings, s => s.inc_per_race ?? 0)!;
   add('insurance', 'Insurance Premium', 'shield-alert', s.driver, f(s.inc_per_race!, 1),
     'average incidents per race, the highest on the team');
+
+  // and for anyone the judges couldn't find anything for
+  const winners = new Set(A.flatMap(a => a.driver.split(' vs ')));
+  let k = 0;
+  for (const st of standings) {
+    if (winners.has(st.driver)) continue;
+    add('participation', 'Participation Trophy', 'ghost', st.driver, '0', CONSOLATION[k++ % CONSOLATION.length]);
+  }
   return A;
 }
+
+/** One each, in standings order, for drivers with no other award. */
+const CONSOLATION = [
+  'awards won. Turned up, did the laps, and left the trophy cabinet in showroom condition.',
+  'awards won. The judges checked every stat twice. Thanks for coming.',
+  'awards won. Generously left all the silverware for everyone else.',
+  'awards won. Not the fastest, cleanest, wildest or luckiest. Just… present.',
+];

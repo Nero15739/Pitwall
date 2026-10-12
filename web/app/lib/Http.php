@@ -104,13 +104,26 @@ final class Http
         return self::$nonce ??= base64_encode(random_bytes(12));
     }
 
+    /** The one inline script: picks the theme and marks that scripts run, before the page paints. */
+    private const BOOT_JS = "(function(){var d=document.documentElement,s=null;d.classList.add('js');try{s=localStorage.getItem('pitwall-theme')}catch(e){}"
+        . "var m=matchMedia('(prefers-color-scheme: dark)');d.dataset.theme=s||(m.matches?'dark':'light');"
+        . "m.addEventListener('change',function(e){var t=null;try{t=localStorage.getItem('pitwall-theme')}catch(x){}if(!t)d.dataset.theme=e.matches?'dark':'light'})})();";
+
+    public static function bootScript(): string
+    {
+        return '<script nonce="' . e(self::nonce()) . '">' . self::BOOT_JS . '</script>';
+    }
+
     public static function securityHeaders(): void
     {
         header('X-Content-Type-Options: nosniff');
         header('Referrer-Policy: strict-origin-when-cross-origin');
         header('X-Frame-Options: DENY');
         header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
-        header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-" . self::nonce() . "'; "
+        // The boot script is allowed by its hash as well as the nonce: a page answered with a 304 is
+        // shown from the browser's cache, old nonce and all, under this response's policy.
+        $boot = base64_encode(hash('sha256', self::BOOT_JS, true));
+        header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-" . self::nonce() . "' 'sha256-{$boot}'; "
             . "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; "
             . "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
         if (self::isHttps()) header('Strict-Transport-Security: max-age=31536000');

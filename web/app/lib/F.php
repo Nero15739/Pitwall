@@ -47,13 +47,64 @@ final class F
         return $x === null ? self::DASH : Num::fixed($x, 3);
     }
 
-    /** A date the browser re-renders in the reader's own locale and time zone. */
-    public static function date(string $iso, bool $year = true): string
+    /** A schedule date with no time ("2026-11-02") is a calendar day, the same day for every reader. */
+    public static function dayOnly(string $iso): bool
     {
+        return strlen($iso) === 10;
+    }
+
+    /**
+     * A date the browser re-renders in the reader's own locale and time zone.
+     * $fmt: long (2 Nov 2026), short (2 Nov), when (Mon 2 Nov · 7:30 pm), daytime (Mon · 7:30 pm),
+     * weekday (Mon). A time is only shown when the date has one.
+     */
+    public static function date(string $iso, bool|string $fmt = true): string
+    {
+        $fmt = $fmt === true ? 'long' : ($fmt === false ? 'short' : $fmt);
+        $day = self::dayOnly($iso);
         $ts = strtotime($iso);
-        $tz = new \DateTimeZone((string) Config::get('timezone', 'UTC'));
-        $text = (new \DateTimeImmutable('@' . $ts))->setTimezone($tz)->format($year ? 'j M Y' : 'j M');
-        return '<time datetime="' . e(gmdate('c', $ts)) . '" data-fmt="' . ($year ? 'long' : 'short') . '">' . e($text) . '</time>';
+        $at = (new \DateTimeImmutable('@' . $ts))->setTimezone(new \DateTimeZone($day ? 'UTC' : (string) Config::get('timezone', 'UTC')));
+        $text = match ($fmt) {
+            'when' => $at->format('D j M') . ($day ? '' : ' · ' . $at->format('g:i a')),
+            'daytime' => $at->format('D') . ($day ? '' : ' · ' . $at->format('g:i a')),
+            'weekday' => $at->format('D'),
+            'short' => $at->format('j M'),
+            default => $at->format('j M Y'),
+        };
+        return '<time datetime="' . e($day ? $iso : gmdate('c', $ts)) . '" data-fmt="' . e($fmt) . '"' . ($day ? ' data-day' : '') . '>' . e($text) . '</time>';
+    }
+
+    /** Whole days from today to a date (negative once it has passed), by the calendar in UTC. */
+    public static function daysUntil(string $iso, ?int $now = null): int
+    {
+        $day = fn(int $ts) => intdiv($ts - ($ts % 86400), 86400);
+        return $day(strtotime($iso)) - $day($now ?? time());
+    }
+
+    /** "in 9 days", "tomorrow", "today", "3 days ago". The browser recounts it in the reader's own time zone. */
+    public static function until(string $iso): string
+    {
+        $d = self::daysUntil($iso);
+        $text = match (true) {
+            $d === 0 => 'today',
+            $d === 1 => 'tomorrow',
+            $d === -1 => 'yesterday',
+            $d > 1 => "in {$d} days",
+            default => abs($d) . ' days ago',
+        };
+        return '<span data-until="' . e(self::dayOnly($iso) ? $iso : gmdate('c', strtotime($iso))) . '"' . (self::dayOnly($iso) ? ' data-day' : '') . '>' . e($text) . '</span>';
+    }
+
+    /** 1075 → "1,075" */
+    public static function int(int|float|null $n): string
+    {
+        return $n === null ? self::DASH : number_format((float) $n);
+    }
+
+    /** An estimated rating: rounded to the nearest ten and marked as approximate. */
+    public static function approx(int|float|null $n): string
+    {
+        return $n === null ? self::DASH : '≈ ' . number_format(round((float) $n, -1));
     }
 
     public static function carShort(?string $c): string
@@ -63,12 +114,17 @@ final class F
         return $s !== '' ? $s : $c;
     }
 
-    private const STOP = ['circuit', 'circuito', 'de', 'del', 'di', 'the', 'autodromo', 'autódromo', 'international', 'raceway', 'park', 'motorsport', 'speedway'];
+    private const STOP = ['circuit', 'circuito', 'de', 'del', 'di', 'the', 'autodromo', 'autódromo', 'nazionale', 'internazionale', 'international', 'raceway', 'park', 'motorsport', 'speedway'];
+
+    /** Circuits known by a name that isn't their first plain word. */
+    private const NICK = ['24 heures du mans' => 'Le Mans', 'enzo e dino ferrari' => 'Imola', 'nordschleife' => 'Nordschleife', 'red bull ring' => 'Red Bull'];
 
     /** One word for tight spaces: "Circuit de Barcelona Catalunya" → "Barcelona". */
     public static function trackTiny(?string $t): string
     {
         $t ??= '';
+        $low = mb_strtolower($t);
+        foreach (self::NICK as $has => $nick) if (str_contains($low, $has)) return $nick;
         foreach (preg_split('/[\s-]+/u', $t) ?: [] as $w) {
             if ($w !== '' && !in_array(mb_strtolower($w), self::STOP, true)) return $w;
         }

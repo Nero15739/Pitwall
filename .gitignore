@@ -18,3 +18,5 @@ __pycache__/
 # API key for pushing from this PC
 .pitwall-key
 /dist/
+# Hostinger deploy target (account details stay out of the public repo)
+/.hostinger/

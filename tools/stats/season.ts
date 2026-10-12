@@ -1,11 +1,13 @@
 /* Races of one season → every season stat the dashboard shows.
    Team stats cover human drivers only; AI times serve as a pace benchmark. */
 import type {
-  CarPace, CarSummary, HardestByDriver, HarvestFile, HotspotSummary, IncidentEvent, Result, Round, RoundSplits, Season,
-  Standing, TrackDifficulty, TrackDriverRow, TrackPage,
+  CarPace, CarSummary, HardestByDriver, HarvestFile, HotspotSummary, IncidentEvent, Result, Round, RoundSplits, ScheduleEntry,
+  Season, Standing, TrackDifficulty, TrackDriverRow, TrackPage,
 } from '../lib/types.ts';
 import { cmpTuple, maxBy, mean, minBy, mostCommon, pstdev, rnd, slug, sum } from '../lib/util.ts';
 import { computeAwards } from './awards.ts';
+import { fieldStrength } from './field.ts';
+import { buildCalendar } from './schedule.ts';
 import { hotspotSet, summarize } from './hotspots.ts';
 import type { Entry, Race } from './race.ts';
 import { roundSplits } from './splits.ts';
@@ -20,6 +22,10 @@ export interface SeasonInput {
     splits?: HarvestFile['splits']; raw: HarvestFile['incidents'];
   }>;
   generated: string;
+  /** cleaned schedule entries (normalizeSchedule), empty when the season has no schedule file */
+  schedule?: ScheduleEntry[];
+  /** track key → track id across every season (knownTracks) */
+  known?: Map<string, number>;
 }
 
 const minTime = (xs: (number | null)[]) => {
@@ -27,7 +33,7 @@ const minTime = (xs: (number | null)[]) => {
   return v.length ? Math.min(...v) : null;
 };
 
-export function buildSeason({ name, races, colorOf, incidents, generated }: SeasonInput): Season {
+export function buildSeason({ name, races, colorOf, incidents, generated, schedule = [], known = new Map() }: SeasonInput): Season {
   races = [...races].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   const teamNames = [...new Set(races.flatMap(r => r.entries.filter(e => !e.ai).map(e => e.name)))].sort();
 
@@ -91,12 +97,13 @@ export function buildSeason({ name, races, colorOf, incidents, generated }: Seas
       cars_used: [...new Set(team.map(e => e.car))].sort(),
       cautions: r.cautions,
       harvested: incidents.has(r.subsession),
+      field: fieldStrength(ents),
     });
 
     for (const e of team) {
       const aiBeaten = ents.filter(o => o.ai && o.finish > e.finish).length;
       results.push({
-        round: i, driver: e.name, car: e.car,
+        round: i, driver: e.name, car: e.car, irating: e.irating,
         start: e.start, finish: e.finish,
         team_finish: teamFinish.get(e.cust_id)!,
         team_qual: teamQual.get(e.cust_id) ?? null,
@@ -124,8 +131,10 @@ export function buildSeason({ name, races, colorOf, incidents, generated }: Seas
   const rows = [...per].map(([d, xs]) => {
     const laps = sum(xs.map(x => x.laps));
     const inc = sum(xs.map(x => x.inc));
+    const rated = xs.map(x => x.irating).filter((v): v is number => v != null);
     return {
       driver: d, color: colorOf(d),
+      irating: rated.length ? rated[rated.length - 1] : null,
       points: sum(xs.map(x => x.points)),
       races: xs.length,
       wins: xs.filter(x => x.finish === 1).length,
@@ -247,6 +256,8 @@ export function buildSeason({ name, races, colorOf, incidents, generated }: Seas
     h2h_race: h2hRace, h2h_qual: h2hQual,
     tracks, hardest_by_driver: hardestByDriver, cars, awards,
     track_pages: trackPages,
+    calendar: buildCalendar(rounds, schedule, known),
+    scheduled: schedule.length > 0,
   };
 }
 

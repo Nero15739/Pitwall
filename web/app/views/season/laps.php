@@ -37,11 +37,13 @@ foreach ($names as $n) {
 $cons = array_values(array_filter($S['standings'], fn($s) => $s['avg_consistency_pct'] !== null));
 usort($cons, fn($a, $b) => $a['avg_consistency_pct'] <=> $b['avg_consistency_pct']);
 $u = fn(string $p) => e(Http::url($S['slug'] . $p));
+// rounds where the AI field could be rated against the team
+$rated = array_filter($R, fn($r) => ($r['field']['ai_rating'] ?? null) !== null);
 ?>
 <div class="phead">
   <span class="kicker">Timing screen</span>
   <h1>Lap times</h1>
-  <p>Who was quickest, by how much, and how consistent. <mark>Gaps are measured to the team’s fastest lap</mark> at each round; the fastest AI is the benchmark.</p>
+  <p>Who was quickest, by how much, and how consistent. <mark>Gaps are measured to the team’s fastest lap</mark> at each round; the fastest AI is the benchmark, and each grid’s strength is rated below.</p>
 </div>
 
 <?= UI::panel('Fastest laps by round', 'Team fastest race lap, the margin to the next team-mate, and the fastest AI lap as a benchmark') ?>
@@ -65,6 +67,61 @@ $u = fn(string $p) => e(Http::url($S['slug'] . $p));
     </table>
   </div>
 <?= UI::end() ?>
+
+<?php if ($rated): ?>
+<?= UI::panel('Strength of field', 'How strong the grid was at each track. AI cars have no iRating, so theirs is estimated from how they finished against ours.',
+    UI::seg('sof-round', array_combine(array_map(fn($r) => (string) $r['round'], $R), array_map(fn($r) => 'R' . $r['round'] . ' ' . F::trackTiny($r['track_short']), $R)), $last, 'Round')) ?>
+  <div class="g-5-7">
+    <div>
+      <?php foreach ($R as $r): $fd = $r['field'] ?? null; if (!$fd) continue;
+        $ladder = [];
+        foreach ($S['results'] as $x) {
+            if ($x['round'] !== $r['round'] || ($x['irating'] ?? null) === null) continue;
+            $ladder[] = ['label' => $x['driver'], 'driver' => true, 'slot' => UI::slot($x['driver']), 'value' => $x['irating'], 'text' => F::int($x['irating']),
+                'tip' => ['title' => $x['driver'], 'lines' => [['value' => F::int($x['irating']), 'label' => 'iRating'], ['value' => F::ord($x['finish']), 'label' => 'finished']]]];
+        }
+        foreach ($fd['groups'] as $g) {
+            $ladder[] = ['label' => $g['cars'] . ' AI · beat ' . $g['beat'] . '/' . $fd['rated'], 'ai' => true, 'value' => $g['rating'], 'text' => F::approx($g['rating']),
+                'tip' => ['title' => F::plural($g['cars'], 'AI car'), 'lines' => [['value' => F::approx($g['rating']), 'label' => 'estimated iRating'],
+                    ['value' => $g['beat'] . ' of ' . $fd['rated'], 'label' => 'team drivers finished behind them']]]];
+        }
+        usort($ladder, fn($a, $b) => $b['value'] <=> $a['value']); ?>
+        <div<?= UI::pane('sof-round', $r['round'], $last) ?>>
+          <p class="note" style="margin:0 0 12px"><?= e($r['track']) ?> · <?= $r['humans'] ?> drivers + <?= $r['ai'] ?> AI</p>
+          <?= UI::bars($ladder, 'iRating ladder: team drivers and the AI field') ?>
+        </div>
+      <?php endforeach ?>
+    </div>
+    <div>
+      <div class="scroll">
+        <table class="tbl compact">
+          <thead><tr><th>Rnd</th><th>Track</th><th class="num" title="Strength of field over the team’s iRatings, as iRacing reports it">Team SoF</th>
+            <th class="num" title="The iRating at which the AI cars’ finishes against the team would be par">AI field</th><th class="num">AI range</th>
+            <th class="num" title="Strength of field with the AI cars at their estimated ratings">Whole grid</th>
+            <th class="num" title="Share of AI-against-team-driver match-ups the AI car won">AI ahead</th>
+            <th class="num" title="The middle AI best lap against the middle team best lap">AI pace</th></tr></thead>
+          <tbody>
+            <?php foreach ($R as $r): $fd = $r['field'] ?? null; if (!$fd) continue;
+              $pace = $fd['ai_median_best'] && $fd['team_median_best'] ? ($fd['ai_median_best'] / $fd['team_median_best'] - 1) * 100 : null; ?>
+              <tr>
+                <td class="pos">R<?= $r['round'] ?></td>
+                <td><a href="<?= $u('/tracks/' . $r['track_id']) ?>"><?= e(F::trackTiny($r['track_short'])) ?></a></td>
+                <td class="num strong"><?= F::int($r['sof'] ?? $fd['team_sof']) ?></td>
+                <td class="num strong"><?= F::approx($fd['ai_rating']) ?></td>
+                <td class="num dim"><?= $fd['ai_low'] === null ? F::DASH : number_format(round($fd['ai_low'], -1)) . '–' . number_format(round($fd['ai_high'], -1)) ?></td>
+                <td class="num"><?= F::approx($fd['sof_est']) ?></td>
+                <td class="num"><?= $fd['pairs'] ? Num::fixed($fd['ai_wins'] / $fd['pairs'] * 100, 0) . '%' : F::DASH ?></td>
+                <td class="num <?= $pace !== null && $pace > 0 ? 'good' : '' ?>"><?= $pace === null ? F::DASH : Num::fixed(abs($pace), 2) . '% ' . ($pace > 0 ? 'slower' : 'faster') ?></td>
+              </tr>
+            <?php endforeach ?>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">iRacing publishes no rating for AI cars, so the AI numbers are estimates: the iRating a car would need for its finishes against our rated drivers to be par, on iRacing’s own rating curve. Cars are grouped by how many of us they beat. One race is a small sample, so read it as a guide to how tough the grid was, not a measurement.</p>
+    </div>
+  </div>
+<?= UI::end() ?>
+<?php endif ?>
 
 <?= UI::panel('Round detail', 'Best race lap per driver, as a gap to the team’s fastest', UI::seg('laps-round', array_combine(
     array_map(fn($r) => (string) $r['round'], $R), array_map(fn($r) => 'R' . $r['round'] . ' ' . F::trackTiny($r['track_short']), $R)), $last, 'Round')) ?>

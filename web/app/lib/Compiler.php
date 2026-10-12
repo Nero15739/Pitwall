@@ -7,6 +7,7 @@ namespace PitWall;
 
 use PitWall\Stats\Hotspots;
 use PitWall\Stats\Race;
+use PitWall\Stats\Schedule;
 use PitWall\Stats\Season;
 
 final class Compiler
@@ -16,10 +17,14 @@ final class Compiler
      * @param array<string, array> $seasons   season name → processed race records
      * @param array<int, array>    $harvests  subsession → harvest file
      * @param callable $maps                  fn(int[] $trackIds): array<int, ?array>
+     * @param array<string, array> $schedules season name → normalized schedule entries
      * @return array{index: array, seasons: array<string, array>, tracks: array}
      */
-    public static function build(array $seasons, array $harvests, callable $maps, string $generated, string $mapSource, array $errors = []): array
+    public static function build(array $seasons, array $harvests, callable $maps, string $generated, string $mapSource, array $errors = [], array $schedules = []): array
     {
+        // a scheduled track with no id borrows it from any race the site already holds there
+        $known = Schedule::knownTracks(array_merge(...array_values($seasons)));
+
         // colour slots are assigned once across every season so a driver keeps their colour
         $humans = [];
         foreach ($seasons as $races) foreach ($races as $r) foreach ($r['entries'] as $e) if (!$e['ai']) $humans[] = $e['name'];
@@ -42,11 +47,12 @@ final class Compiler
                     ];
                 }
             }
-            $season = Season::build($name, $races, $colorOf, $incidents, $generated);
+            $season = Season::build($name, $races, $colorOf, $incidents, $generated, $schedules[$name] ?? [], $known);
             $built[$season['slug']] = $season;
             $R = $season['rounds'];
             $index[] = [
                 'name' => $name, 'slug' => $season['slug'], 'league' => $season['league'], 'rounds' => count($R),
+                'upcoming' => count($season['calendar']) - count($R),
                 'first' => $R[0]['date'], 'last' => $R[count($R) - 1]['date'],
                 'leader' => $season['standings'][0]['driver'] ?? null, 'file' => "season-{$season['slug']}.json",
             ];
@@ -56,10 +62,22 @@ final class Compiler
         // ---- tracks: geometry + every season's hotspots at each track
         $ids = [];
         foreach ($built as $s) foreach ($s['rounds'] as $rd) $ids[$rd['track_id']] = true;
-        $ids = array_keys($ids);
+        // tracks still to come get a map too
+        $ahead = [];
+        foreach ($built as $s) foreach ($s['calendar'] as $c) {
+            if ($c['status'] === 'upcoming' && $c['track_id'] !== null && !isset($ids[$c['track_id']])) $ahead[$c['track_id']] ??= $c;
+        }
+        $ids = array_merge(array_keys($ids), array_keys($ahead));
         $geo = $ids ? $maps($ids) : [];
         $tracks = [];
         foreach ($ids as $id) {
+            if (isset($ahead[$id])) {
+                $tracks[(string) $id] = [
+                    'id' => $id, 'name' => $ahead[$id]['track'], 'short' => $ahead[$id]['track_short'], 'map' => $geo[$id] ?? null,
+                    'length_m' => null, 'seasons' => [], 'hotspots_all' => null,
+                ];
+                continue;
+            }
             $pages = [];
             foreach ($built as $s) foreach ($s['track_pages'] as $p) if ($p['track_id'] === $id) $pages[] = [$s, $p];
             $events = [];
@@ -133,10 +151,15 @@ final class Compiler
                     $errors[] = "incidents-{$row['subsession']}.json: {$e->getMessage()}";
                 }
             }
+            $schedules = [];
+            foreach ($store->schedulesForCompile() as $row) $schedules[$row['season']] = json_decode($row['rounds'], true) ?: [];
             $source = Config::get('track_map_source');
             $overrides = json_decode($store->setting('track_overrides', '{}'), true) ?: [];
             $maps = fn(array $ids) => TrackMaps::load($ids, $source, [$store, 'trackMap'], [$store, 'saveTrackMap'], $overrides, $log);
-            $out = self::build($seasons, $harvests, $maps, gmdate('Y-m-d\TH:i:s\Z'), $source, $errors);
+            $out = self::build($seasons, $harvests, $maps, gmdate('Y-m-d\TH:i:s\Z'), $source, $errors, $schedules);
+
+            // stamped with the code that built it, so a site update republishes by itself (Site::republish)
+            $out['index']['build'] = PITWALL_VERSION;
 
             $dir = Paths::cache();
             foreach ($out['seasons'] as $slug => $season) Files::writeJson("{$dir}/season-{$slug}.json", $season);

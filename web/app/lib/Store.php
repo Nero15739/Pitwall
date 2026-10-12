@@ -84,6 +84,7 @@ final class Store
         if ((int) $this->db->val('SELECT COUNT(*) FROM races WHERE season_id = ?', [$id]) > 0) {
             throw new UserError('Move or delete its races first.');
         }
+        $this->db->run('DELETE FROM schedules WHERE season_id = ?', [$id]);
         $this->db->run('DELETE FROM seasons WHERE id = ?', [$id]);
     }
 
@@ -201,6 +202,42 @@ final class Store
     public function deleteHarvest(int $sub): void
     {
         $this->db->run('DELETE FROM harvests WHERE subsession = ?', [$sub]);
+    }
+
+    // ---------------------------------------------------------------- season schedules (rounds still to come)
+    public function schedules(): array
+    {
+        return $this->db->all(
+            'SELECT c.season_id, s.name AS season, s.slug AS season_slug, c.n_rounds, c.filename, c.uploaded_at, c.uploaded_by
+             FROM schedules c JOIN seasons s ON s.id = c.season_id ORDER BY s.name');
+    }
+
+    public function schedule(int $seasonId): ?array
+    {
+        return $this->db->one('SELECT * FROM schedules WHERE season_id = ?', [$seasonId]);
+    }
+
+    public function schedulesForCompile(): array
+    {
+        return $this->db->all('SELECT s.name AS season, c.rounds FROM schedules c JOIN seasons s ON s.id = c.season_id');
+    }
+
+    /** @return bool true when created, false when replaced */
+    public function saveSchedule(int $seasonId, array $row): bool
+    {
+        return $this->db->tx(function (Db $db) use ($seasonId, $row) {
+            if ($db->val('SELECT 1 FROM schedules WHERE season_id = ?', [$seasonId])) {
+                $db->update('schedules', $row, 'season_id = :id', ['id' => $seasonId]);
+                return false;
+            }
+            $db->insert('schedules', $row + ['season_id' => $seasonId]);
+            return true;
+        });
+    }
+
+    public function deleteSchedule(int $seasonId): void
+    {
+        $this->db->run('DELETE FROM schedules WHERE season_id = ?', [$seasonId]);
     }
 
     // ---------------------------------------------------------------- track maps (cache for TrackMaps)

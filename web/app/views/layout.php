@@ -25,7 +25,7 @@ $slug = $S['slug'] ?? null;
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="<?= e(Http::asset('css/pitwall.css')) ?>">
-<script nonce="<?= e(Http::nonce()) ?>">(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('pitwall-theme')}catch(e){}var m=matchMedia('(prefers-color-scheme: dark)');d.dataset.theme=s||(m.matches?'dark':'light');m.addEventListener('change',function(e){var t=null;try{t=localStorage.getItem('pitwall-theme')}catch(x){}if(!t)d.dataset.theme=e.matches?'dark':'light'})})();</script>
+<?= Http::bootScript() ?>
 <script src="<?= e(Http::asset('js/pitwall.js')) ?>" defer></script>
 <?= \PitWall\View::slot('head') ?>
 </head>
@@ -48,7 +48,7 @@ $slug = $S['slug'] ?? null;
           <label class="sr" for="season-pick">Season</label>
           <select id="season-pick" name="season" data-season-nav>
             <?php foreach ($seasons as $s): ?>
-              <option value="<?= e($s['slug']) ?>"<?= $s['slug'] === $slug ? ' selected' : '' ?>><?= e($s['name']) ?> · <?= (int) $s['rounds'] ?> rnd<?= $s['rounds'] === 1 ? '' : 's' ?></option>
+              <option value="<?= e($s['slug']) ?>" data-short="<?= e($s['name']) ?>"<?= $s['slug'] === $slug ? ' selected' : '' ?>><?= e($s['name']) ?> · <?= (int) $s['rounds'] ?><?= ($s['upcoming'] ?? 0) ? '/' . ((int) $s['rounds'] + (int) $s['upcoming']) : '' ?> rnd<?= $s['rounds'] === 1 && !($s['upcoming'] ?? 0) ? '' : 's' ?></option>
             <?php endforeach ?>
           </select>
           <noscript><button class="btn btn-sm" type="submit">Go</button></noscript>
@@ -62,15 +62,9 @@ $slug = $S['slug'] ?? null;
   <div class="chequer" aria-hidden="true"></div>
 </header>
 <?php if ($slug): ?>
-<nav class="tabs" aria-label="Pages">
-  <div class="wrap">
-    <ul>
-      <?php foreach (Site::SECTIONS as $key => $label): ?>
-        <li><a href="<?= e(Http::url($slug . ($key ? "/{$key}" : ''))) ?>"<?= $key === $section ? ' aria-current="page"' : '' ?>><?= e($label) ?></a></li>
-      <?php endforeach ?>
-    </ul>
-  </div>
-</nav>
+<?= UI::tabs('Pages', array_map(fn($key, $label) => [
+    'href' => Http::url($slug . ($key ? "/{$key}" : '')), 'label' => $label, 'current' => $key === $section,
+], array_keys(Site::SECTIONS), Site::SECTIONS)) ?>
 <?php endif ?>
 
 <main id="main" class="wrap main">

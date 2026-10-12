@@ -41,6 +41,7 @@ final class Admin
                     '/races/move' => self::moveRace(),
                     '/races/delete' => self::deleteRace(),
                     '/harvests/delete' => self::deleteHarvest(),
+                    '/schedule/delete' => self::deleteSchedule(),
                     '/seasons/create' => self::createSeason(),
                     '/seasons/rename' => self::renameSeason(),
                     '/seasons/delete' => self::deleteSeason(),
@@ -62,7 +63,9 @@ final class Admin
             '/' => self::dashboard(),
             '/races' => self::page('admin/races', [
                 'title' => 'Races', 'seasons' => self::$store->seasons(), 'races' => self::$store->races(), 'harvests' => self::$store->harvests(),
+                'schedules' => array_column(self::$store->schedules(), null, 'season_id'),
             ]),
+            '/schedule/download' => self::downloadSchedule(),
             '/keys' => self::page('admin/keys', ['title' => 'API keys', 'keys' => self::$store->apiKeys(), 'newKey' => self::takeNewKey()]),
             '/settings' => self::page('admin/settings', [
                 'title' => 'Settings', 'overrides' => self::$store->setting('track_overrides', ''), 'activity' => self::$store->activity(100),
@@ -167,6 +170,7 @@ final class Admin
                 if ($r['status'] !== 'unchanged') $changed++;
                 $lines[] = match ($r['type']) {
                     'result' => "✓ {$name}: {$r['status']} · {$r['track']} → {$r['season']}",
+                    'schedule' => "✓ {$name}: {$r['status']} · schedule of {$r['rounds']} round(s) → {$r['season']}",
                     default => "✓ {$name}: {$r['status']} · {$r['incidents']} incidents" . ($r['matched'] ? " · {$r['season']}" : ' · no matching race yet'),
                 };
             } catch (UserError $e) {
@@ -227,6 +231,41 @@ final class Admin
         self::$store->deleteHarvest($sub);
         self::$store->log(self::actor(), 'harvest.delete', (string) $sub);
         self::recompile("Deleted the harvested replay for {$sub}.");
+    }
+
+    private static function deleteSchedule(): never
+    {
+        $id = (int) Http::post('id');
+        $s = self::$store->season($id) ?? throw new UserError('That season no longer exists.');
+        self::$store->deleteSchedule($id);
+        self::$store->log(self::actor(), 'schedule.delete', $s['name']);
+        self::recompile("Removed the schedule for {$s['name']}. Its upcoming rounds are gone from the site.");
+    }
+
+    /** The season's schedule as a file to edit and upload again; a starter file when it has none. */
+    private static function downloadSchedule(): never
+    {
+        $s = self::$store->season((int) Http::query('season')) ?? App::error(404, 'Season not found', 'That season no longer exists.');
+        $stored = self::$store->schedule((int) $s['id']);
+        if ($stored) {
+            $rounds = json_decode($stored['rounds'], true) ?: [];
+        } else {
+            // start from the rounds already raced, plus one example to overwrite
+            $rounds = [];
+            foreach (Data::season($s['slug'])['rounds'] ?? [] as $r) {
+                $config = str_starts_with($r['track'], $r['track_short'] . ' – ') ? substr($r['track'], strlen($r['track_short'] . ' – ')) : null;
+                $rounds[] = ['date' => $r['date'], 'track' => $r['track_short'], 'config' => $config, 'track_id' => $r['track_id']];
+            }
+            $rounds[] = [
+                'date' => gmdate('Y-m-d', time() + 14 * 86400), 'track' => 'EXAMPLE: replace with the track name', 'config' => null,
+                'track_id' => null, 'laps' => null, 'minutes' => null, 'cars' => null, 'note' => 'Copy this block for each round still to come',
+            ];
+        }
+        $doc = ['type' => 'schedule', 'version' => 1, 'season' => $s['name'], 'rounds' => $rounds];
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Disposition: attachment; filename="schedule-' . $s['slug'] . '.json"');
+        echo json_encode($doc, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
     }
 
     private static function createSeason(): never

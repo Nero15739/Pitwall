@@ -13,6 +13,12 @@ final class Data
         return self::$memo[$file] ??= Files::readJson(Paths::cache() . '/' . $file);
     }
 
+    /** Drop what this request has loaded, after the compiler has published again. */
+    public static function forget(): void
+    {
+        self::$memo = [];
+    }
+
     public static function index(): ?array
     {
         return self::load('seasons.json');

@@ -7,6 +7,7 @@ export interface Entry {
   cust_id: number;
   name: string;
   ai: boolean;
+  irating: number | null;   // the rating a driver took into the race; AI cars have none
   car: string;
   car_id: number;
   start: number;
@@ -61,10 +62,15 @@ export function processRace(path: string): Race {
     [...qual].filter(([, t]) => t).sort((a, b) => (a[1] as number) - (b[1] as number)).map(([c], i) => [c, i + 1]),
   );
 
+  const rating = (r: any) => {
+    const ir = Number.isInteger(r.oldi_rating) && r.oldi_rating > 0 ? r.oldi_rating : r.newi_rating;
+    return !r.ai && Number.isInteger(ir) && ir > 0 ? ir : null;
+  };
   const entries: Entry[] = race.results.map((r: any) => ({
     cust_id: r.cust_id,
     name: r.display_name,
     ai: Boolean(r.ai),
+    irating: rating(r),
     car: r.car_name,
     car_id: r.car_id,
     start: r.starting_position + 1,

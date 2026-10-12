@@ -1,7 +1,8 @@
 # Pit Wall – iRacing league site
 
-Season standings, lap times, incidents, cars, head-to-heads and awards for the league, plus a page
-per track with the circuit map, **crash hotspots** and **sector splits** taken from the race replays.
+Season standings, lap times, incidents, cars, head-to-heads and awards for the league, a **calendar**
+of the rounds raced and still to come, plus a page per track with the circuit map, a **crash heat
+map** and **sector splits** taken from the race replays.
 
 Pit Wall 3 is a PHP site built for ordinary web hosting (Hostinger), with a brutalist design, an
 admin panel for uploads, and an API so the iRacing PC can push results and replay harvests by itself.
@@ -45,7 +46,7 @@ Iracing-Seasons/
 │   ├── push.ts                 sends files to the site's API
 │   ├── watch.ts                pushes new files as they land in data/
 │   └── compile.ts, stats/      the original compiler (the PHP one matches it number for number)
-├── data/                    ← your files (git-ignored): data/<season>/eventresult-*.json, data/incidents/
+├── data/                    ← your files (git-ignored): data/<season>/eventresult-*.json and schedule.json, data/incidents/
 ├── deploy/                  ← setup.bat (PC), harvest.bat, package-web.ps1 (makes the upload zip)
 └── tests/parity.php         ← proves the PHP compiler publishes exactly the v2 numbers
 ```
@@ -55,7 +56,7 @@ Iracing-Seasons/
 1. **PHP version.** hPanel → Websites → your site → Advanced → PHP Configuration: PHP 8.2 or newer
    (8.3 recommended). The extensions Pit Wall needs (pdo_sqlite, curl, mbstring, zlib) are on by default.
 2. **Package the site** on this PC: `npm run package` (or run `deploy\package-web.ps1`). It writes
-   `dist\pitwall-web-3.0.0.zip`.
+   `dist\pitwall-web-<version>.zip`.
 3. **Upload.** hPanel → Files → File Manager → `public_html`. Remove Hostinger's placeholder page,
    upload the zip, right-click it → Extract, and extract **into public_html itself** (you should then see
    `index.php`, `.htaccess`, `app`, `assets` directly inside `public_html`). Delete the zip.
@@ -69,6 +70,8 @@ Iracing-Seasons/
 
 **Updating the site later:** package again and extract over the top. Your data lives in
 `pitwall-storage` and your settings in `config.php`, and neither is in the zip, so both survive.
+The first page view after an update republishes the stored races with the new code, so new stats
+appear by themselves (`npm run push -- --compile` and Admin → Dashboard → "Rebuild now" do the same by hand).
 
 **Database:** SQLite, a single file in `pitwall-storage`, needs no setup and is plenty for a league.
 To use a Hostinger MySQL database instead, create one in hPanel → Databases and fill in `db` in
@@ -84,8 +87,8 @@ second copy: `npm run push -- --all --force` re-uploads everything to a fresh in
 There are three ways in. All of them check the file, store it, and republish the site within a
 second or so:
 
-- **Admin panel** (`/admin`): drop any number of `eventresult-*.json` and `incidents-*.json` files on
-  the upload box. Results go into the season you pick, or one is chosen automatically: a re-upload stays
+- **Admin panel** (`/admin`): drop any number of `eventresult-*.json`, `incidents-*.json` and schedule
+  files on the upload box. Results go into the season you pick, or one is chosen automatically: a re-upload stays
   where it was, a race from a league season the site already has joins that season, otherwise a new
   season named after the league season. Races can be moved between seasons, seasons renamed (the
   name is the web address) and files removed under **Races**.
@@ -98,6 +101,7 @@ second or so:
 | `GET /api/v1/status` | seasons, races, and which replays still need harvesting |
 | `POST /api/v1/results?season=Name` | body: an iRacing event result export |
 | `POST /api/v1/incidents` | body: a harvested replay file |
+| `POST /api/v1/schedule?season=Name` | body: a season schedule (the rounds still to come) |
 | `POST /api/v1/compile` | republish (uploads do this themselves unless `?compile=0`) |
 
 Send the key as `Authorization: Bearer <key>` (or `X-API-Key`). Bodies may be gzipped with
@@ -107,6 +111,33 @@ Send the key as `Authorization: Bearer <key>` (or `X-API-Key`). Bodies may be gz
 ```
 curl -X POST "https://your-domain/api/v1/results?season=Europe" -H "Authorization: Bearer $PITWALL_API_KEY" --data-binary @eventresult-89139124-Nurburg-GP.json
 ```
+
+### The season schedule (rounds still to come)
+
+The calendar shows the rounds already raced by itself. To show what's coming, upload a schedule: a
+small JSON file, through any of the three ways in. Uploading a new one replaces the old.
+
+```json
+{
+  "type": "schedule",
+  "season": "Europe",
+  "rounds": [
+    { "date": "2026-11-02T19:30:00+11:00", "track": "Hungaroring", "track_id": 413, "laps": 14, "note": "Night race" },
+    { "date": "2026-11-16", "track": "Autodromo Nazionale Monza", "config": "Grand Prix" }
+  ]
+}
+```
+
+- Each round needs a `track` and a `date`: a day (`2026-11-16`), or a time with its UTC offset
+  (`2026-11-02T19:30:00+11:00`), which every reader then sees in their own time zone.
+- Optional: `config`, `laps` or `minutes`, `cars`, `note`, and `track_id` (iRacing's track number,
+  which draws the map; a track the site has already raced is recognised by name).
+- List the whole season or only what's left. A round counts as raced once a result at that track,
+  within three weeks of its date, is uploaded; until then it shows as still to come.
+- `season` can be left out when it's picked in the upload form, given as `?season=`, or there is
+  only one season. On the PC the file is `data\<season>\schedule.json` and the watcher pushes it.
+- Admin → Races lists each season's schedule, with a download (a starter file when there is none
+  yet) and a delete.
 
 ## The iRacing PC
 
@@ -126,6 +157,7 @@ Cloudflare tunnel) if it's still installed; add `-RemoveOldServer` to delete it.
 | `npm run push -- --all` | push everything under `data/` that the site doesn't have yet |
 | `npm run push -- --status` | what the site holds, and which replays still need harvesting |
 | `npm run push -- --season "Asia" <file>` | push a race into a particular season |
+| `npm run push -- --compile` | republish the site (after updating its code) |
 | `npm run harvest -- --pending` | races still to harvest, and whether the replay is on this PC |
 | `npm run harvest -- --open <subsession>` | open that replay in iRacing and harvest it (uploads when done) |
 
@@ -184,7 +216,14 @@ compiler against the TypeScript one, value by value).
 - Incident rates are per 10 laps completed, so short and long races compare fairly.
 - Track difficulty blends the team's incident rate (50%), lap consistency (30%) and average places
   lost from the grid (20%).
-- Hotspots cluster the incidents spotted in the replay around the lap (±2% windows). Telemetry shows
+- **Strength of field.** iRacing gives AI cars no iRating, and the event's strength of field covers
+  the team alone. So each round's AI strength is estimated from the result: the iRating at which the
+  AI cars' finishes against the team's rated drivers would be par, on iRacing's own rating curve
+  (1600 points doubles the odds). AI cars are grouped by how many team drivers they beat. One race
+  is a small sample: a guide to how tough the grid was, not a measurement.
+- The Participation Trophy goes to every driver with no other award.
+- The heat map gathers the incidents spotted in the replay into spots around the lap, sized so the
+  circles never run into each other on screen, for the team, the whole field or one driver. Telemetry shows
   a car leaving the circuit or spinning, but not contact that ends in neither, so the map undercounts
   the official incident points. On the Nürburgring round, per-driver counts tracked the official
   points with a correlation of 0.90.

@@ -13,8 +13,10 @@ final class Season
      * @param array $races      processed race records (Race::process)
      * @param callable $colorOf driver name → colour slot
      * @param array $incidents  subsession → ['events' => [...], 'length_m' => ?, 'splits' => ?, 'raw' => [...]]
+     * @param array $schedule   normalized schedule entries (Schedule::normalize), empty when none was uploaded
+     * @param array $known      track key → track id across every season (Schedule::knownTracks)
      */
-    public static function build(string $name, array $races, callable $colorOf, array $incidents, string $generated): array
+    public static function build(string $name, array $races, callable $colorOf, array $incidents, string $generated, array $schedule = [], array $known = []): array
     {
         usort($races, fn($a, $b) => strcmp($a['date'], $b['date']));
         $teamNames = [];
@@ -90,12 +92,13 @@ final class Season
                 'cars_used' => Num::uniqueSorted(array_column($team, 'car')),
                 'cautions' => $r['cautions'],
                 'harvested' => isset($incidents[$r['subsession']]),
+                'field' => Field::round($ents),
             ];
 
             foreach ($team as $e) {
                 $aiBeaten = count(array_filter($ents, fn($o) => $o['ai'] && $o['finish'] > $e['finish']));
                 $results[] = [
-                    'round' => $i, 'driver' => $e['name'], 'car' => $e['car'],
+                    'round' => $i, 'driver' => $e['name'], 'car' => $e['car'], 'irating' => $e['irating'],
                     'start' => $e['start'], 'finish' => $e['finish'],
                     'team_finish' => $teamFinish[$e['cust_id']],
                     'team_qual' => $teamQual[$e['cust_id']] ?? null,
@@ -126,8 +129,10 @@ final class Season
             $laps = Num::sum(array_column($xs, 'laps'));
             $inc = Num::sum(array_column($xs, 'inc'));
             $col = fn(string $k) => array_column($xs, $k);
+            $rated = array_values(array_filter($col('irating'), fn($v) => $v !== null));
             $rows[] = [
                 'driver' => $d, 'color' => $colorOf($d),
+                'irating' => $rated ? $rated[count($rated) - 1] : null,
                 'points' => Num::sum($col('points')),
                 'races' => count($xs),
                 'wins' => count(array_filter($xs, fn($x) => $x['finish'] === 1)),
@@ -253,6 +258,7 @@ final class Season
 
         $awards = Awards::compute($results, $rounds, $standings, $per);
         $trackPages = self::trackPages($races, $rounds, $results, $standings, $tracks, $incidents);
+        $calendar = Schedule::calendar($rounds, $schedule, $known);
 
         $league = $name;
         foreach ($races as $r) if ($r['league']) { $league = $r['league']; break; }
@@ -266,6 +272,8 @@ final class Season
             'h2h_race' => $h2hRace, 'h2h_qual' => $h2hQual,
             'tracks' => $tracks, 'hardest_by_driver' => $hardestByDriver, 'cars' => $cars, 'awards' => $awards,
             'track_pages' => $trackPages,
+            'calendar' => $calendar,
+            'scheduled' => (bool) $schedule,
         ];
     }
 

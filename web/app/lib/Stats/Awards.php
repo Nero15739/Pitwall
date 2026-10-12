@@ -135,6 +135,23 @@ final class Awards
         $s = Num::maxBy($standings, fn($s) => $s['inc_per_race'] ?? 0);
         $add('insurance', 'Insurance Premium', 'shield-alert', $s['driver'], $f($s['inc_per_race'], 1),
             'average incidents per race, the highest on the team');
+
+        // and for anyone the judges couldn't find anything for
+        $winners = [];
+        foreach ($A as $a) foreach (explode(' vs ', $a['driver']) as $who) $winners[$who] = true;
+        $k = 0;
+        foreach ($standings as $s) {
+            if (isset($winners[$s['driver']])) continue;
+            $add('participation', 'Participation Trophy', 'ghost', $s['driver'], '0', self::CONSOLATION[$k++ % count(self::CONSOLATION)]);
+        }
         return $A;
     }
+
+    /** One each, in standings order, for drivers with no other award. */
+    private const CONSOLATION = [
+        'awards won. Turned up, did the laps, and left the trophy cabinet in showroom condition.',
+        'awards won. The judges checked every stat twice. Thanks for coming.',
+        'awards won. Generously left all the silverware for everyone else.',
+        'awards won. Not the fastest, cleanest, wildest or luckiest. Just… present.',
+    ];
 }

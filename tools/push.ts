@@ -5,8 +5,10 @@
      npm run push -- <file>...             just these files
      npm run push -- --season "Asia" <file>   put these race results in that season
      npm run push -- --status              what the site holds, and which replays still need harvesting
+     npm run push -- --compile             republish the site (after updating its code)
 
-   Race results go into the season named by their folder under data/ (data/Europe/… → "Europe").
+   Race results go into the season named by their folder under data/ (data/Europe/… → "Europe"),
+   and so does that folder's schedule.json: the rounds still to come.
    Needs "site" in pitwall.config.json and an API key, made in the site's admin panel under
    API keys, in PITWALL_API_KEY or the first line of .pitwall-key (git-ignored). The harvester and
    the watcher push new files by themselves once both are set. */
@@ -14,16 +16,18 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { findSeasons, incidentFiles } from './compile.ts';
+import { findSeasons, incidentFiles, scheduleFiles } from './compile.ts';
 import { apiKey, loadConfig } from './lib/config.ts';
 import { atomicWrite } from './lib/util.ts';
 
 const cfg = loadConfig();
 const STATE = join(cfg.cacheDir, 'pushed.json');
 
-type Kind = 'results' | 'incidents';
+type Kind = 'results' | 'incidents' | 'schedule';
 const kindOf = (f: string): Kind | null =>
-  /^eventresult-.*\.json$/i.test(basename(f)) ? 'results' : /^incidents-\d+\.json$/i.test(basename(f)) ? 'incidents' : null;
+  /^eventresult-.*\.json$/i.test(basename(f)) ? 'results'
+    : /^incidents-\d+\.json$/i.test(basename(f)) ? 'incidents'
+    : /^schedule.*\.json$/i.test(basename(f)) ? 'schedule' : null;
 
 /** The season a race result belongs to: its first folder under data/ (null when it lives elsewhere). */
 function seasonOf(file: string): string | null {
@@ -60,10 +64,10 @@ export async function pushFiles(files: string[], opts: { force?: boolean; season
   for (const f of files) {
     const kind = kindOf(f);
     const name = relative(cfg.root, resolve(f));
-    if (!kind) { log(`  skip  ${name} (not an eventresult-*.json or incidents-*.json)`); continue; }
+    if (!kind) { log(`  skip  ${name} (not an eventresult-*.json, incidents-*.json or schedule.json)`); continue; }
     if (!existsSync(f)) { log(`  ✗     ${name}: no such file`); failed++; continue; }
     const body = readFileSync(f);
-    const season = kind === 'results' ? (opts.season ?? seasonOf(f)) : null;
+    const season = kind === 'incidents' ? null : (opts.season ?? seasonOf(f));
     // same bytes, same site, same season = nothing to do
     const mark = `${createHash('sha1').update(body).digest('hex')}@${cfg.site}#${season ?? ''}`;
     const id = resolve(f);
@@ -73,7 +77,10 @@ export async function pushFiles(files: string[], opts: { force?: boolean; season
     try {
       const r = await api('POST', `/${kind}?${q}`, gzipSync(body), { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' });
       const s = r.stored;
-      log(`  ${s.status.padEnd(9)} ${basename(f)}${s.type === 'result' ? ` → ${s.season}` : ` · ${s.incidents} incidents${s.matched ? '' : ' (race not uploaded yet)'}`}`);
+      const what = s.type === 'result' ? ` → ${s.season}`
+        : s.type === 'schedule' ? ` · ${s.rounds} rounds → ${s.season}`
+        : ` · ${s.incidents} incidents${s.matched ? '' : ' (race not uploaded yet)'}`;
+      log(`  ${s.status.padEnd(9)} ${basename(f)}${what}`);
       state[id] = mark;
       if (s.status !== 'unchanged') sent++;
     } catch (e) {
@@ -92,7 +99,7 @@ export async function pushFiles(files: string[], opts: { force?: boolean; season
 
 /** Every result and harvest file under data/. */
 export function allDataFiles(): string[] {
-  return [...[...findSeasons(cfg).values()].flat(), ...incidentFiles(cfg)];
+  return [...[...findSeasons(cfg).values()].flat(), ...incidentFiles(cfg), ...scheduleFiles(cfg)];
 }
 
 export const pushChanged = (log?: (s: string) => void) => pushFiles(allDataFiles(), { log });
@@ -112,7 +119,12 @@ if (import.meta.main) {
   const flag = (f: string) => args.includes(f);
   const opt = (f: string) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : undefined; };
   try {
-    if (flag('--status')) {
+    if (flag('--compile')) {
+      const c = (await api('POST', '/compile')).compiled;
+      console.log(`${cfg.site} republished: ${c.seasons} season(s), ${c.races} race(s) in ${c.ms} ms${c.errors.length ? `, ${c.errors.length} error(s)` : ''}`);
+      for (const e of c.errors) console.log(`  ${e}`);
+      process.exitCode = c.errors.length ? 1 : 0;
+    } else if (flag('--status')) {
       const s = await siteStatus();
       console.log(`${cfg.site} · published ${s.generated ?? 'never'}`);
       for (const season of s.seasons) {
