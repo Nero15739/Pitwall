@@ -32,6 +32,7 @@ final class Api
                 $route === '/v1/results' => self::only($method, 'POST') ?? self::upload(self::auth(), 'result'),
                 $route === '/v1/incidents' => self::only($method, 'POST') ?? self::upload(self::auth(), 'harvest'),
                 $route === '/v1/schedule' => self::only($method, 'POST') ?? self::upload(self::auth(), 'schedule'),
+                $route === '/v1/live' => self::only($method, 'POST') ?? self::live(self::auth()),
                 $route === '/v1/compile' => self::only($method, 'POST') ?? self::compile(self::auth()),
                 default => self::fail(404, 'not_found', 'No such endpoint. See /api/v1/health.'),
             };
@@ -107,9 +108,9 @@ final class Api
         ]);
     }
 
-    private static function upload(array $auth, string $type): never
+    /** The request body, un-gzipped when it says so. */
+    private static function body(): string
     {
-        [$store, $key] = $auth;
         $max = (int) Config::get('max_upload_mb', 10) * 1024 * 1024;
         $body = file_get_contents('php://input', false, null, 0, $max + 1);
         if ($body === false || $body === '') throw new UserError('The request body is empty. Send the JSON file as the body.', 400);
@@ -117,6 +118,22 @@ final class Api
             $body = @gzdecode($body, $max + 1); // capped, so a small bomb can't expand into gigabytes
             if ($body === false) throw new UserError('Content-Encoding says gzip but the body could not be decompressed (or it is too large).', 400);
         }
+        return $body;
+    }
+
+    /** A live log from the Pit Wall Logger app. It stands alone, so nothing needs recompiling. */
+    private static function live(array $auth): never
+    {
+        [$store, $key] = $auth;
+        $r = Live::save(Ingest::decode(self::body()));
+        if ($r['status'] !== 'unchanged') $store->log(self::actor($key), 'live log', "{$r['id']}: {$r['incidents']} incidents");
+        Http::json(['stored' => $r], $r['status'] === 'created' ? 201 : 200);
+    }
+
+    private static function upload(array $auth, string $type): never
+    {
+        [$store, $key] = $auth;
+        $body = self::body();
         $doc = Ingest::decode($body);
         $kind = Ingest::detect($doc);
         if ($kind !== $type) {

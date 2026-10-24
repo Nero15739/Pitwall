@@ -35,6 +35,7 @@ namespace PitWall
     {
         public long Sub; public int SessionNum; public string SessionType = "", Track = "", TrackConfig = "", RecordedBy = "", View = "";
         public int TrackId; public long RecordedById;
+        public string TrackShort = ""; public double LengthM;
         public DateTime Started = DateTime.UtcNow, Ended;
         public bool Finished;
         public readonly List<Incident> Incidents = new List<Incident>();
@@ -61,7 +62,7 @@ namespace PitWall
             {
                 { "version", 1 }, { "method", "live" }, { "subsession", Sub },
                 { "session", new Dictionary<string, object> { { "num", SessionNum }, { "type", SessionType } } },
-                { "track", new Dictionary<string, object> { { "id", TrackId }, { "name", Track }, { "config", TrackConfig } } },
+                { "track", new Dictionary<string, object> { { "id", TrackId }, { "name", Track }, { "short", TrackShort }, { "config", TrackConfig }, { "length_m", LengthM > 0 ? (object)Math.Round(LengthM) : null } } },
                 { "recorded_by", new Dictionary<string, object> { { "cust_id", RecordedById }, { "name", RecordedBy } } },
                 { "view", View },
                 { "started", Started.ToString("o") }, { "ended", Ended == default(DateTime) ? null : Ended.ToString("o") },
@@ -309,9 +310,19 @@ namespace PitWall
             return new Recording
             {
                 Sub = Yaml.Long(wk, "SubSessionID", 0), SessionNum = sn, SessionType = sess == null ? "?" : Yaml.Str(sess, "SessionType"),
-                Track = Yaml.Str(wk, "TrackDisplayName"), TrackConfig = Yaml.Str(wk, "TrackConfigName"), TrackId = Yaml.Int(wk, "TrackID", 0),
+                Track = Yaml.Str(wk, "TrackDisplayName"), TrackShort = Yaml.Str(wk, "TrackDisplayShortName"), TrackConfig = Yaml.Str(wk, "TrackConfigName"), TrackId = Yaml.Int(wk, "TrackID", 0),
+                LengthM = LengthOf(Yaml.Str(wk, "TrackLength")),
                 RecordedBy = me == null ? "" : me.Name, RecordedById = me == null ? 0 : me.CustId,
             };
+        }
+
+        /// <summary>"6.9293 km" or "4.31 mi" → metres (0 when missing).</summary>
+        static double LengthOf(string s)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(s, @"([\d.]+)\s*(km|mi)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            double v;
+            if (!m.Success || !double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out v)) return 0;
+            return v * (m.Groups[2].Value.ToLowerInvariant() == "mi" ? 1609.344 : 1000);
         }
 
         /// <summary>Can this PC see everyone's incidents? Outside a race everyone can; in a race only admins should.</summary>

@@ -51,6 +51,21 @@ final class Site
         }
     }
 
+    /** /live: the sessions the Pit Wall Logger uploaded; /live/<id>: one of them. */
+    private static function live(string $id, ?array $index): never
+    {
+        $vars = ['index' => $index, 'live' => true];
+        $slots = Live::slots();
+        UI::useDrivers(array_map(fn($name, $color) => ['name' => $name, 'color' => $color], array_keys($slots), $slots));
+        if ($id === '') View::send(View::render('live/index', $vars + ['sessions' => Live::all(), 'pageTitle' => 'Live sessions']));
+        $d = Live::load($id);
+        if (!$d) App::error(404, 'Session not found', 'There’s no live log at this address.');
+        View::send(View::render('live/session', $vars + [
+            'd' => $d, 'id' => $id, 'P' => Live::page($d), 'map' => Live::map((int) ($d['track']['id'] ?? 0)), 'slots' => $slots,
+            'pageTitle' => ($d['track']['short'] ?? '') ?: ($d['track']['name'] ?? 'Live session'),
+        ]));
+    }
+
     public static function handle(string $path): void
     {
         $index = Data::index();
@@ -63,6 +78,8 @@ final class Site
             $pick = array_values(array_filter($seasons, fn($s) => $s['slug'] === $want))[0] ?? $seasons[0];
             Http::redirect('/' . $pick['slug'], 302);
         }
+
+        if ($path === '/live' || str_starts_with($path, '/live/')) self::live(substr($path, 6), $index);
 
         $parts = explode('/', trim($path, '/'));
         [$slug, $section, $id] = array_pad($parts, 3, '');

@@ -17,6 +17,8 @@
   const km = m => (m == null ? null : m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
   const where = pct => `${(pct * 100).toFixed(0)}% of the lap${D.lengthM ? ' · ' + km(pct * D.lengthM) : ''}`;
   const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+  // a live log from the Pit Wall Logger (every incident iRacing counted) rather than a replay harvest
+  const LIVE = Boolean(D.live);
   const tipAttr = c => ` data-tip="${esc(JSON.stringify(c))}"`;
   const dtag = (name, ai) => `<span class="dtag">${markerIcon(ai ? null : slotOf(name))}<span class="dtag-n">${esc(name)}</span>${ai ? '<span class="ai-badge">AI</span>' : ''}</span>`;
   const seg = (act, opts, value, label) => `<div class="seg" role="group" aria-label="${esc(label)}">${opts.map(([v, t]) => `<button type="button" data-act="${act}" data-v="${esc(v)}" aria-pressed="${String(v) === String(value)}">${esc(t)}</button>`).join('')}</div>`;
@@ -121,7 +123,14 @@
     return spots.sort((a, b) => b.n - a.n || a.pct - b.pct);
   }
   const isFocus = b => S.focus != null && lapDist(b.pct, S.focus) < 1e-6;
-  const mix = b => (b.spins === 0 ? plural(b.n, 'off-track') : b.spins === b.n ? plural(b.n, 'spin') : `${b.n - b.spins} off-track · ${plural(b.spins, 'spin')}`);
+  const mix = b => {
+    if (LIVE) {
+      const k = kind => b.evs.filter(e => e.kind === kind).length;
+      return [[k('off track'), 'off-track'], [k('spin / wall'), 'spin or wall', 'spins or walls'], [k('car contact'), 'contact', 'contacts']]
+        .filter(([n]) => n).map(([n, one, many]) => plural(n, one, many)).join(' · ');
+    }
+    return b.spins === 0 ? plural(b.n, 'off-track') : b.spins === b.n ? plural(b.n, 'spin') : `${b.n - b.spins} off-track · ${plural(b.spins, 'spin')}`;
+  };
   const lapsOf = b => [...new Set(b.evs.map(e => e.lap))].sort((x, y) => x - y);
   const whoLine = b => (selName() != null
     ? `${lapsOf(b).length === 1 ? 'Lap' : 'Laps'} ${lapsOf(b).join(', ')}`
@@ -232,6 +241,7 @@
     const who = selName();
     const title = sectors ? 'Sector splits' : 'Crash heat map';
     const sub = sectors ? `${d.driver}${d.ai ? ' (AI)' : ''} · best time in each sector against the team’s best. Pick a sector to compare everyone.`
+      : evs && LIVE ? `${plural(evs.length, 'incident')} logged live for ${who ?? (S.sel === 'field' ? 'every car' : 'the human drivers')}. Each circle sits where they happened: the bigger and hotter, the more often.`
       : evs ? `${plural(evs.length, 'off-track or spin', 'off-tracks and spins')} found in the replay for ${who ?? (S.sel === 'field' ? 'the whole field' : 'the team')}. Each circle sits where they happened: the bigger and hotter, the more often.`
       : 'Where incidents happened on the lap, from the race replay';
     let actions = '';
@@ -255,7 +265,7 @@
       const names = [...new Set(D.events.filter(e => e.team).map(e => e.driver))].sort();
       const chip = (v, label, n, icon = '') => `<button type="button" class="chip heat-chip" data-act="sel" data-v="${esc(v)}" aria-pressed="${S.sel === v}">${icon}${esc(label)}<b>${n}</b></button>`;
       under = `<div class="chips map-controls" role="group" aria-label="Whose incidents to show"><span class="chips-l">Show</span>
-          ${chip('team', 'Team', all.filter(e => e.team).length)}${chip('field', 'Whole field', all.length)}
+          ${chip('team', LIVE ? 'Humans' : 'Team', all.filter(e => e.team).length)}${chip('field', 'Whole field', all.length)}
           ${names.map(n => chip(`d:${n}`, first(n), count.get(n) ?? 0, markerIcon(slotOf(n)))).join('')}</div>
         <div class="map-legend"><span>Fewer <span class="ramp">${[2, 3, 4, 5, 6, 7].map(s => `<i style="background:var(--h${s})"></i>`).join('')}</span> more incidents</span>
           <span><span class="bub s"></span><span class="bub l"></span>Circle size: incidents at that spot</span>
@@ -304,11 +314,14 @@
         <span class="hnum heat h${b.step}">${b.n}</span><span class="hb"><span class="hrow"><span>${esc(where(b.pct))}</span></span>
         <span class="hwho">${esc(whoLine(b))}</span><span class="hwho">${esc(mix(b))}</span></span></button></li>`).join('')}</ol>`;
     } else if (evs?.length) body = `<p class="muted">No repeat offences: ${who ? esc(first(who)) + '’s' : 'the'} ${plural(evs.length, 'incident')} ${evs.length === 1 ? 'was a one-off' : 'were spread around the lap'}.</p>`;
-    else if (evs) body = `<p class="muted">${who ? esc(first(who)) + ' kept it on the black stuff here: nothing in the replay.' : 'Nothing in the replay: a clean race.'}</p>`;
+    else if (evs) body = `<p class="muted">${who ? esc(first(who)) + ' kept it on the black stuff here: nothing ' + (LIVE ? 'logged.' : 'in the replay.') : (LIVE ? 'Nothing logged: a clean session.' : 'Nothing in the replay: a clean race.')}</p>`;
     else body = '<p class="muted">Harvest the race replay to see where cars left the track or spun, and the corners that bite.</p>';
-    if (evs) body += '<p class="note">Found in the replay: cars leaving the circuit and spins. Contact that doesn’t end in either can’t be seen, so these undercount the official incident points.</p>';
+    if (evs) body += LIVE
+      ? '<p class="note">Logged live from iRacing’s own incident counts, so every incident is here, contact included. A circle sits where the car left the track or, when that didn’t register (tarmac run-off), where it was about 0.8 s before its count rose.</p>'
+      : '<p class="note">Found in the replay: cars leaving the circuit and spins. Contact that doesn’t end in either can’t be seen, so these undercount the official incident points.</p>';
     const head = who ? `${esc(first(who))}’s trouble spots` : 'Hotspots';
-    const sub = !evs ? 'Appears once the replay is harvested' : who ? 'Where this driver went off more than once' : `Where ${S.sel === 'field' ? 'the field' : 'the team'} went off most, worst first`;
+    const sub = !evs ? 'Appears once the replay is harvested' : who ? `Where this driver ${LIVE ? 'had more than one incident' : 'went off more than once'}`
+      : `Where ${S.sel === 'field' ? 'the field' : LIVE ? 'the humans' : 'the team'} ${LIVE ? 'had most incidents' : 'went off most'}, worst first`;
     return `<section class="panel"><header class="panel-h"><div class="panel-t"><h2>${head}</h2><p>${sub}</p></div></header><div class="panel-b">${body}</div></section>`;
   }
 

@@ -43,6 +43,7 @@ $slug = $S['slug'] ?? null;
       </span>
     </a>
     <div class="mast-r">
+      <a class="btn btn-sm<?= !empty($live) ? ' btn-ink' : '' ?>" href="<?= e(Http::url('live')) ?>"<?= !empty($live) ? ' aria-current="page"' : '' ?>>Live</a>
       <?php if ($seasons): ?>
         <form action="<?= e(Http::url('/')) ?>" method="get" class="season-form">
           <label class="sr" for="season-pick">Season</label>
