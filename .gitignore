@@ -21,3 +21,6 @@ __pycache__/
 /dist/
 # Hostinger deploy target (account details stay out of the public repo)
 /.hostinger/
+# Pit Wall Logger build output
+/app/**/bin/
+/app/**/obj/
