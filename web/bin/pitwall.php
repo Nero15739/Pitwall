@@ -1,8 +1,8 @@
 <?php
 /* Command-line tools (for SSH on Hostinger, or local testing).
 
-     php bin/pitwall.php import <data dir>    upload every eventresult-*.json (season = its folder name)
-                                              and incidents-*.json under a v2-style data folder
+     php bin/pitwall.php import <data dir>    upload every eventresult-*.json and schedule.json (season = its
+                                              folder name) and incidents-*.json under a v2-style data folder
      php bin/pitwall.php compile              rebuild the published data
      php bin/pitwall.php create-admin <user>  create the admin account (asks for the password)
      php bin/pitwall.php reset-password <user>
@@ -45,6 +45,11 @@ try {
                 foreach (glob("{$dir}/eventresult-*.json") as $f) {
                     $r = Ingest::any($store, file_get_contents($f), $season, basename($f), 'cli');
                     $say(sprintf('  %-9s %s → %s (%s)', $r['status'], basename($f), $r['season'], $r['track']));
+                    $n++;
+                }
+                if (is_file("{$dir}/schedule.json")) {
+                    $r = Ingest::any($store, file_get_contents("{$dir}/schedule.json"), $season, 'schedule.json', 'cli');
+                    $say(sprintf('  %-9s schedule.json → %s (%d rounds)', $r['status'], $r['season'], $r['rounds']));
                     $n++;
                 }
             }

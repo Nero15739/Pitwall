@@ -12,18 +12,23 @@ require PITWALL_ROOT . '/app/bootstrap.php';
 
 use PitWall\Compiler;
 use PitWall\Stats\Race;
+use PitWall\Stats\Schedule;
 
 $repo = dirname(__DIR__);
 $refDir = $argv[1] ?? "{$repo}/public/data";
 
-// ---- inputs, laid out like v2: data/<season>/eventresult-*.json, data/incidents/incidents-*.json
+// ---- inputs, laid out like v2: data/<season>/eventresult-*.json (+ schedule.json), data/incidents/incidents-*.json
 $seasons = [];
+$schedules = [];
 foreach (glob("{$repo}/data/*", GLOB_ONLYDIR) as $dir) {
     $name = basename($dir);
     if ($name === 'incidents' || $name[0] === '.') continue;
     $files = glob("{$dir}/eventresult-*.json");
     sort($files);
     foreach ($files as $f) $seasons[$name][] = Race::process(json_decode(file_get_contents($f), true), basename($f));
+    if (is_file("{$dir}/schedule.json")) {
+        $schedules[$name] = Schedule::normalize(json_decode(file_get_contents("{$dir}/schedule.json"), true)['rounds']);
+    }
 }
 $harvests = [];
 foreach (glob("{$repo}/data/incidents/incidents-*.json") as $f) {
@@ -41,7 +46,7 @@ $maps = function (array $ids) use ($repo) {
 
 $t0 = hrtime(true);
 $ref = json_decode(file_get_contents("{$refDir}/seasons.json"), true);
-$out = Compiler::build($seasons, $harvests, $maps, $ref['generated'], 'https://raw.githubusercontent.com/xikxp1/iRaceHUD/main/static/track_info_data/');
+$out = Compiler::build($seasons, $harvests, $maps, $ref['generated'], 'https://raw.githubusercontent.com/xikxp1/iRaceHUD/main/static/track_info_data/', [], $schedules);
 $ms = (hrtime(true) - $t0) / 1e6;
 
 // ---- compare

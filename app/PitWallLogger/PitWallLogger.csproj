@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Pit Wall Logger. Build: powershell -File app\build.ps1   (output: dist\PitWallLogger\) -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>PitWall</RootNamespace>
+    <AssemblyName>PitWallLogger</AssemblyName>
+    <ApplicationIcon>pitwall.ico</ApplicationIcon>
+    <!-- what Task Manager and the file's properties show -->
+    <AssemblyTitle>Pit Wall Logger</AssemblyTitle>
+    <Product>Pit Wall Logger</Product>
+    <Company>Pavtech Solutions Pty Ltd</Company>
+    <Copyright>© 2026 Pavtech Solutions Pty Ltd</Copyright>
+    <Version>0.2.0</Version>
+    <!-- small and light: no runtime bundled (uses the installed .NET 8 Desktop runtime), invariant culture, no debug symbols -->
+    <SelfContained>false</SelfContained>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <DebugType>none</DebugType>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <TieredPGO>true</TieredPGO>
+    <ServerGarbageCollector>false</ServerGarbageCollector>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+  </PropertyGroup>
+</Project>

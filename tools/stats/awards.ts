@@ -1,11 +1,12 @@
 /* Season awards: the numbers behind the bragging rights. */
-import type { Award, Result, Round, Standing } from '../lib/types.ts';
+import type { Award, Result, Round, Standing, TrackPage } from '../lib/types.ts';
 import { cmpTuple, maxBy, mean, minBy, mostCommon } from '../lib/util.ts';
 
 const f = (x: number, d: number) => x.toFixed(d);
 const signed = (x: number, d: number) => (x >= 0 ? '+' : '') + x.toFixed(d);
 
-export function computeAwards(results: Result[], rounds: Round[], standings: Standing[], per: Map<string, Result[]>): Award[] {
+/** pages: the season's track pages, for what the harvested replays add (sector bests, incidents spotted). */
+export function computeAwards(results: Result[], rounds: Round[], standings: Standing[], per: Map<string, Result[]>, pages: TrackPage[] = []): Award[] {
   if (!results.length) return [];
   const track = new Map(rounds.map(r => [r.round, r.track_short]));
   const A: Award[] = [];
@@ -16,6 +17,32 @@ export function computeAwards(results: Result[], rounds: Round[], standings: Sta
   if (x.gained > 0)
     add('charger', 'Hard Charger', 'rocket', x.driver, `+${x.gained}`,
       `places gained in one race: P${x.start} → P${x.finish} at ${track.get(x.round)}`);
+
+  x = minBy(results, x => x.gained)!;
+  if (x.gained < 0)
+    add('reverse', 'Reverse Gear', 'trend-down', x.driver, `−${-x.gained}`,
+      `places lost in one race: P${x.start} → P${x.finish} at ${track.get(x.round)}`);
+
+  // from the replay's lap chart, in the rounds that have one
+  const charted = results.filter(x => x.lap1_pos != null && x.low_pos != null);
+  if (charted.length) {
+    x = maxBy(charted, x => x.start - x.lap1_pos!)!;
+    if (x.start > x.lap1_pos!)
+      add('lap1hero', 'Lap One Hero', 'zap', x.driver, `+${x.start - x.lap1_pos!}`,
+        `places gained on the opening lap at ${track.get(x.round)}: P${x.start} → P${x.lap1_pos}`);
+    x = minBy(charted, x => x.start - x.lap1_pos!)!;
+    if (x.start < x.lap1_pos!)
+      add('lap1victim', 'Lap One Victim', 'alert', x.driver, `−${x.lap1_pos! - x.start}`,
+        `places lost on the opening lap at ${track.get(x.round)}: P${x.start} → P${x.lap1_pos}`);
+    x = maxBy(charted, x => x.low_pos! - x.finish)!;
+    if (x.low_pos! > x.finish)
+      add('comeback', 'Comeback', 'corner-up', x.driver, `+${x.low_pos! - x.finish}`,
+        `places recovered at ${track.get(x.round)}: as low as P${x.low_pos}, finished P${x.finish}`);
+    x = maxBy(charted, x => x.pos_changes ?? 0)!;
+    if (x.pos_changes)
+      add('yoyo', 'Yo-Yo', 'activity', x.driver, `${x.pos_changes}`,
+        `laps ended in a different place from the lap before, at ${track.get(x.round)}`);
+  }
 
   x = maxBy(results, x => x.inc)!;
   add('wrecking', 'Wrecking Ball', 'bolt', x.driver, `${x.inc}x`, `incidents in a single race at ${track.get(x.round)}`);
@@ -40,6 +67,30 @@ export function computeAwards(results: Result[], rounds: Round[], standings: Sta
       add('speed', 'Speed Demon', 'stopwatch', s.driver, `${s.team_fastest_laps}`, `team fastest laps from ${rounds.length} rounds`);
   }
 
+  // from harvested replays: who holds the team's best time in each sector, and the incidents spotted
+  const kings: string[] = [];
+  for (const sp of pages.flatMap(p => p.splits)) {
+    const team = sp.drivers.filter(d => d.team);
+    sp.sectors.forEach((_, k) => {
+      const timed = team.filter(d => d.best[k] != null);
+      if (timed.length > 1) kings.push(minBy(timed, d => d.best[k]!)!.driver);
+    });
+  }
+  if (kings.length) {
+    const [who, n] = Object.entries(mostCommon(kings))[0];
+    add('sectors', 'Sector King', 'gauge', who, `${n}`, `team-best sectors, of the ${kings.length} timed in replays`);
+  }
+  const spotted = pages.flatMap(p => p.hotspots?.events ?? []).filter(e => e.team);
+  for (const [kind, key, title, icon, detail] of [
+    ['off', 'lawnmower', 'Lawnmower', 'leaf', 'trips onto the grass or gravel, spotted in replays'],
+    ['spin', 'spin', 'Spin Doctor', 'refresh', 'spins, spotted in replays'],
+  ]) {
+    const who = spotted.filter(e => e.kind === kind).map(e => e.driver);
+    if (!who.length) continue;
+    const [name, n] = Object.entries(mostCommon(who))[0];
+    add(key, title, icon, name, `${n}`, detail);
+  }
+
   const qualAvg = (d: string) => mean((per.get(d) ?? []).filter(x => x.team_qual).map(x => x.team_qual));
   const qa = minBy(standings, s => qualAvg(s.driver) || 99)!;
   add('quali', 'Quali Ace', 'flag', qa.driver, f(qualAvg(qa.driver)!, 1), 'average qualifying position within the team');
@@ -49,6 +100,12 @@ export function computeAwards(results: Result[], rounds: Round[], standings: Sta
 
   s = maxBy(standings, s => s.laps_led)!;
   if (s.laps_led) add('leader', 'Front Runner', 'crown', s.driver, `${s.laps_led}`, 'laps led this season');
+
+  s = maxBy(standings, s => s.laps_team_led)!;
+  if (s.laps_team_led) add('teamlead', 'Team Leader', 'users', s.driver, `${s.laps_team_led}`, 'laps as the first team car on track, in the rounds with a harvested replay');
+
+  s = maxBy(standings, s => s.laps_last)!;
+  if (s.laps_last) add('tail', 'Tail Gunner', 'anchor', s.driver, `${s.laps_last}`, 'laps run last on track, in the rounds with a harvested replay');
 
   s = maxBy(standings, s => s.ai_beaten)!;
   add('ai', 'AI Slayer', 'robot', s.driver, `${s.ai_beaten}`, 'AI cars finished ahead of, all season');
@@ -118,5 +175,21 @@ export function computeAwards(results: Result[], rounds: Round[], standings: Sta
   s = maxBy(standings, s => s.inc_per_race ?? 0)!;
   add('insurance', 'Insurance Premium', 'shield-alert', s.driver, f(s.inc_per_race!, 1),
     'average incidents per race, the highest on the team');
+
+  // and for anyone the judges couldn't find anything for
+  const winners = new Set(A.flatMap(a => a.driver.split(' vs ')));
+  let k = 0;
+  for (const st of standings) {
+    if (winners.has(st.driver)) continue;
+    add('participation', 'Participation Trophy', 'ghost', st.driver, '0', CONSOLATION[k++ % CONSOLATION.length]);
+  }
   return A;
 }
+
+/** One each, in standings order, for drivers with no other award. */
+const CONSOLATION = [
+  'awards won. Turned up, did the laps, and left the trophy cabinet in showroom condition.',
+  'awards won. The judges checked every stat twice. Thanks for coming.',
+  'awards won. Generously left all the silverware for everyone else.',
+  'awards won. Not the fastest, cleanest, wildest or luckiest. Just… present.',
+];

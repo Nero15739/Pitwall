@@ -13,8 +13,10 @@ final class Season
      * @param array $races      processed race records (Race::process)
      * @param callable $colorOf driver name → colour slot
      * @param array $incidents  subsession → ['events' => [...], 'length_m' => ?, 'splits' => ?, 'raw' => [...]]
+     * @param array $schedule   normalized schedule entries (Schedule::normalize), empty when none was uploaded
+     * @param array $known      track key → track id across every season (Schedule::knownTracks)
      */
-    public static function build(string $name, array $races, callable $colorOf, array $incidents, string $generated): array
+    public static function build(string $name, array $races, callable $colorOf, array $incidents, string $generated, array $schedule = [], array $known = []): array
     {
         usort($races, fn($a, $b) => strcmp($a['date'], $b['date']));
         $teamNames = [];
@@ -60,6 +62,30 @@ final class Season
             $teamQual = [];
             foreach ($q as $k => $e) $teamQual[$e['cust_id']] = $k + 1;
 
+            // the replay's lap chart, when the round has one: who was where at the end of each lap
+            $order = $incidents[$r['subsession']]['order'] ?? null;
+            $chart = $order !== null ? array_slice($order, 0, $r['race_laps'] ?? count($order)) : null;
+            $teamIds = array_flip(array_column($team, 'cust_id'));
+            $lastLaps = [];   // laps run last on track: the final car across the line
+            $teamLed = [];    // laps as the first of the team's cars
+            foreach ($chart ?? [] as $lap) {
+                if (count($lap) > 1) {
+                    $tail = $lap[count($lap) - 1];
+                    $lastLaps[$tail] = ($lastLaps[$tail] ?? 0) + 1;
+                }
+                $ours = array_values(array_filter($lap, fn($id) => isset($teamIds[$id])));
+                if (count($ours) > 1) $teamLed[$ours[0]] = ($teamLed[$ours[0]] ?? 0) + 1;
+            }
+            // a car's place at the end of each lap it completed
+            $places = function (int $id) use ($chart): array {
+                $out = [];
+                foreach ($chart ?? [] as $lap) {
+                    $k = array_search($id, $lap);
+                    if ($k !== false) $out[] = $k + 1;
+                }
+                return $out;
+            };
+
             $teamInc = Num::sum(array_column($team, 'inc'));
             $teamLaps = Num::sum(array_column($team, 'laps'));
             $rounds[] = [
@@ -90,17 +116,27 @@ final class Season
                 'cars_used' => Num::uniqueSorted(array_column($team, 'car')),
                 'cautions' => $r['cautions'],
                 'harvested' => isset($incidents[$r['subsession']]),
+                'field' => Field::round($ents),
             ];
 
             foreach ($team as $e) {
                 $aiBeaten = count(array_filter($ents, fn($o) => $o['ai'] && $o['finish'] > $e['finish']));
+                $pl = $places($e['cust_id']);
+                $p1 = isset($chart[0]) ? array_search($e['cust_id'], $chart[0]) : false;
                 $results[] = [
-                    'round' => $i, 'driver' => $e['name'], 'car' => $e['car'],
+                    'round' => $i, 'driver' => $e['name'], 'car' => $e['car'], 'irating' => $e['irating'],
                     'start' => $e['start'], 'finish' => $e['finish'],
                     'team_finish' => $teamFinish[$e['cust_id']],
                     'team_qual' => $teamQual[$e['cust_id']] ?? null,
                     'gained' => $e['start'] - $e['finish'],
                     'laps' => $e['laps'], 'laps_led' => $e['laps_led'],
+                    'laps_last' => $chart !== null ? ($lastLaps[$e['cust_id']] ?? 0) : null,
+                    'laps_team_led' => $chart !== null ? ($teamLed[$e['cust_id']] ?? 0) : null,
+                    'lap1_pos' => $p1 !== false ? $p1 + 1 : null,
+                    'low_pos' => $pl ? max($pl) : null,
+                    'pos_changes' => $chart !== null
+                        ? count(array_filter($pl, fn($p, $k) => $p !== ($k ? $pl[$k - 1] : $e['start']), ARRAY_FILTER_USE_BOTH))
+                        : null,
                     'best' => $e['best'], 'best_lap_num' => $e['best_lap_num'], 'avg' => $e['avg'],
                     'qual' => $e['qual'], 'qual_rank' => $e['qual_rank'], 'prac' => $e['prac'],
                     'inc' => $e['inc'],
@@ -126,8 +162,10 @@ final class Season
             $laps = Num::sum(array_column($xs, 'laps'));
             $inc = Num::sum(array_column($xs, 'inc'));
             $col = fn(string $k) => array_column($xs, $k);
+            $rated = array_values(array_filter($col('irating'), fn($v) => $v !== null));
             $rows[] = [
                 'driver' => $d, 'color' => $colorOf($d),
+                'irating' => $rated ? $rated[count($rated) - 1] : null,
                 'points' => Num::sum($col('points')),
                 'races' => count($xs),
                 'wins' => count(array_filter($xs, fn($x) => $x['finish'] === 1)),
@@ -141,6 +179,8 @@ final class Season
                 'avg_start' => Num::rnd(Num::mean($col('start')), 2),
                 'avg_gained' => Num::rnd(Num::mean($col('gained')), 2),
                 'laps' => $laps, 'laps_led' => Num::sum($col('laps_led')),
+                'laps_last' => Num::sum(array_map(fn($x) => $x['laps_last'] ?? 0, $xs)),
+                'laps_team_led' => Num::sum(array_map(fn($x) => $x['laps_team_led'] ?? 0, $xs)),
                 'inc' => $inc, 'inc_per_race' => Num::rnd($inc / count($xs), 2),
                 'inc_per_lap' => $laps ? Num::rnd($inc / $laps, 4) : null,
                 'avg_gap_team_pct' => Num::rnd(Num::mean($col('gap_team_pct'))),
@@ -251,8 +291,9 @@ final class Season
         }
         usort($cars, fn($a, $b) => Num::cmpTuple([-$a['starts'], $a['avg_finish'] ?: 99], [-$b['starts'], $b['avg_finish'] ?: 99]));
 
-        $awards = Awards::compute($results, $rounds, $standings, $per);
         $trackPages = self::trackPages($races, $rounds, $results, $standings, $tracks, $incidents);
+        $awards = Awards::compute($results, $rounds, $standings, $per, $trackPages);
+        $calendar = Schedule::calendar($rounds, $schedule, $known);
 
         $league = $name;
         foreach ($races as $r) if ($r['league']) { $league = $r['league']; break; }
@@ -266,6 +307,8 @@ final class Season
             'h2h_race' => $h2hRace, 'h2h_qual' => $h2hQual,
             'tracks' => $tracks, 'hardest_by_driver' => $hardestByDriver, 'cars' => $cars, 'awards' => $awards,
             'track_pages' => $trackPages,
+            'calendar' => $calendar,
+            'scheduled' => (bool) $schedule,
         ];
     }
 

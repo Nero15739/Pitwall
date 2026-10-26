@@ -105,11 +105,12 @@ final class UI
         return $h . '</ul>';
     }
 
-    public static function tile(string $label, string $valueHtml, string $unit = '', string $meta = '', string $class = ''): string
+    /** $metaHtml: the meta line is already HTML (a date the browser re-renders), not text to escape. */
+    public static function tile(string $label, string $valueHtml, string $unit = '', string $meta = '', string $class = '', bool $metaHtml = false): string
     {
         return '<div class="tile ' . e($class) . '"><span class="tile-l">' . e($label) . '</span>'
             . '<span class="tile-v">' . $valueHtml . ($unit !== '' ? '<span class="tile-u">' . e($unit) . '</span>' : '') . '</span>'
-            . ($meta !== '' ? '<span class="tile-m">' . e($meta) . '</span>' : '') . '</div>';
+            . ($meta !== '' ? '<span class="tile-m">' . ($metaHtml ? $meta : e($meta)) . '</span>' : '') . '</div>';
     }
 
     /** Segmented control. Panes marked data-pane="group" data-value=".." are switched by pitwall.js. */
@@ -138,6 +139,26 @@ final class UI
     public static function end(): string
     {
         return '</div></section>';
+    }
+
+    /**
+     * The page tabs. On a small screen pitwall.js folds them behind a menu button that names the
+     * current page; without JavaScript they stay a strip that scrolls sideways.
+     * $links: [['href' => .., 'label' => .., 'current' => bool]]
+     */
+    public static function tabs(string $label, array $links): string
+    {
+        $now = 'Menu';
+        foreach ($links as $l) if ($l['current']) $now = $l['label'];
+        $h = '<nav class="tabs" aria-label="' . e($label) . '" data-tabs><div class="wrap">'
+            . '<button type="button" class="tabs-btn" data-tabs-toggle aria-expanded="false" aria-controls="tabs-list">'
+            . '<span class="tabs-ic">' . self::icon('menu', 22, 'tabs-open-ic') . self::icon('x', 22, 'tabs-close-ic') . '</span>'
+            . '<span class="sr">' . e($label) . ' menu. Current page: </span><span class="tabs-now">' . e($now) . '</span>'
+            . '<span class="tabs-hint" aria-hidden="true"></span></button><ul id="tabs-list">';
+        foreach ($links as $l) {
+            $h .= '<li><a href="' . e($l['href']) . '"' . ($l['current'] ? ' aria-current="page"' : '') . '>' . e($l['label']) . '</a></li>';
+        }
+        return $h . '</ul></div></nav>';
     }
 
     /** A small silhouette of the circuit. */

@@ -10,7 +10,7 @@ use PDO;
 
 final class Db
 {
-    private const SCHEMA = 1;
+    private const SCHEMA = 2;   // 2: season schedules
     private static ?Db $inst = null;
 
     private function __construct(public readonly PDO $pdo, public readonly string $driver) {}
@@ -135,6 +135,14 @@ final class Db
                 sha1 CHAR(40) NOT NULL,
                 bytes INT NOT NULL,
                 raw {$big} NOT NULL,
+                uploaded_at VARCHAR(25) NOT NULL,
+                uploaded_by VARCHAR(120) NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS schedules (
+                season_id INT NOT NULL PRIMARY KEY,
+                rounds {$big} NOT NULL,
+                n_rounds INT NOT NULL,
+                filename VARCHAR(255) NOT NULL,
+                sha1 CHAR(40) NOT NULL,
                 uploaded_at VARCHAR(25) NOT NULL,
                 uploaded_by VARCHAR(120) NOT NULL)",
             "CREATE TABLE IF NOT EXISTS track_maps (

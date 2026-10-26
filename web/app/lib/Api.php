@@ -8,6 +8,7 @@
      GET  /api/v1/status                 seasons, races, and which replays still need harvesting
      POST /api/v1/results?season=Name    body: an iRacing eventresult JSON (gzip allowed)
      POST /api/v1/incidents              body: a harvested replay file (incidents-<subsession>.json)
+     POST /api/v1/schedule?season=Name   body: a season schedule {"type": "schedule", "rounds": [...]}
      POST /api/v1/compile                rebuild the published data
    Uploads recompile straight away; add ?compile=0 when sending a batch, then POST /compile once. */
 declare(strict_types=1);
@@ -30,6 +31,8 @@ final class Api
                 $route === '/v1/status' => self::only($method, 'GET') ?? self::status(self::auth()),
                 $route === '/v1/results' => self::only($method, 'POST') ?? self::upload(self::auth(), 'result'),
                 $route === '/v1/incidents' => self::only($method, 'POST') ?? self::upload(self::auth(), 'harvest'),
+                $route === '/v1/schedule' => self::only($method, 'POST') ?? self::upload(self::auth(), 'schedule'),
+                $route === '/v1/live' => self::only($method, 'POST') ?? self::live(self::auth()),
                 $route === '/v1/compile' => self::only($method, 'POST') ?? self::compile(self::auth()),
                 default => self::fail(404, 'not_found', 'No such endpoint. See /api/v1/health.'),
             };
@@ -105,9 +108,9 @@ final class Api
         ]);
     }
 
-    private static function upload(array $auth, string $type): never
+    /** The request body, un-gzipped when it says so. */
+    private static function body(): string
     {
-        [$store, $key] = $auth;
         $max = (int) Config::get('max_upload_mb', 10) * 1024 * 1024;
         $body = file_get_contents('php://input', false, null, 0, $max + 1);
         if ($body === false || $body === '') throw new UserError('The request body is empty. Send the JSON file as the body.', 400);
@@ -115,18 +118,38 @@ final class Api
             $body = @gzdecode($body, $max + 1); // capped, so a small bomb can't expand into gigabytes
             if ($body === false) throw new UserError('Content-Encoding says gzip but the body could not be decompressed (or it is too large).', 400);
         }
+        return $body;
+    }
+
+    /** A live log from the Pit Wall Logger app. It stands alone, so nothing needs recompiling. */
+    private static function live(array $auth): never
+    {
+        [$store, $key] = $auth;
+        $r = Live::save(Ingest::decode(self::body()));
+        if ($r['status'] !== 'unchanged') $store->log(self::actor($key), 'live log', "{$r['id']}: {$r['incidents']} incidents");
+        Http::json(['stored' => $r], $r['status'] === 'created' ? 201 : 200);
+    }
+
+    private static function upload(array $auth, string $type): never
+    {
+        [$store, $key] = $auth;
+        $body = self::body();
         $doc = Ingest::decode($body);
         $kind = Ingest::detect($doc);
         if ($kind !== $type) {
-            throw new UserError($type === 'result'
-                ? 'This endpoint takes an iRacing event result export. Send harvested replays to /api/v1/incidents.'
-                : 'This endpoint takes a harvested replay file. Send event results to /api/v1/results.');
+            throw new UserError(match ($type) {
+                'result' => 'This endpoint takes an iRacing event result export. Send harvested replays to /api/v1/incidents.',
+                'harvest' => 'This endpoint takes a harvested replay file. Send event results to /api/v1/results.',
+                default => 'This endpoint takes a season schedule: {"type": "schedule", "rounds": [{"date": "2026-11-02", "track": "…"}]}.',
+            });
         }
-        $filename = Http::query('filename') ?? Http::header('X-Filename') ?? ($type === 'result' ? 'eventresult-api.json' : 'incidents-api.json');
+        $filename = Http::query('filename') ?? Http::header('X-Filename') ?? ['result' => 'eventresult-api.json', 'harvest' => 'incidents-api.json', 'schedule' => 'schedule-api.json'][$type];
         $season = Http::query('season') ?? Http::header('X-Season');
-        $r = $type === 'result'
-            ? Ingest::result($store, $doc, $body, $season, $filename, self::actor($key))
-            : Ingest::harvest($store, $doc, $body, $filename, self::actor($key));
+        $r = match ($type) {
+            'result' => Ingest::result($store, $doc, $body, $season, $filename, self::actor($key)),
+            'harvest' => Ingest::harvest($store, $doc, $body, $filename, self::actor($key)),
+            default => Ingest::schedule($store, $doc, $season, $filename, self::actor($key)),
+        };
         $out = ['stored' => $r];
         if ($r['status'] !== 'unchanged' && Http::query('compile') !== '0') $out['compiled'] = Compiler::run($store);
         Http::json($out, $r['status'] === 'created' ? 201 : 200);

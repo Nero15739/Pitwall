@@ -1,7 +1,8 @@
 /* Detects incidents from replay telemetry: a car leaving the circuit (off track) or rolling
    backwards (a spin). Contacts that don't end in either can't be seen in telemetry.
    Tuned on a full race at 16× replay speed: per-driver counts tracked the official incident
-   points with a correlation of 0.90, with at most two false alarms on any clean car. */
+   points with a correlation of 0.90, with at most two false alarms on any clean car.
+   The Pit Wall Logger has a line-for-line C# port (app/PitWallLogger/HarvestParts.cs): change both. */
 
 import type { IncidentKind } from './lib/types.ts';
 export interface DetectedIncident { car: number; t: number; pct: number; lap: number; kind: IncidentKind; off: boolean }

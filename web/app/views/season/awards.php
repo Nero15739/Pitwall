@@ -10,7 +10,7 @@ $colorFor = function (string $who): string {
 <div class="phead">
   <span class="kicker">Podium ceremony</span>
   <h1>Season awards</h1>
-  <p>The numbers behind the bragging rights, <mark>all computed from the race results</mark>.</p>
+  <p>The numbers behind the bragging rights, <mark>all computed from the race results and replays</mark>.</p>
 </div>
 
 <div class="g3">

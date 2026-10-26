@@ -13,13 +13,17 @@ $info = $tracks[(string) $tp['track_id']] ?? null;
 $rounds = array_values(array_filter($S['rounds'], fn($r) => in_array($r['round'], $tp['rounds'], true)));
 $otherSeasons = array_filter($info['seasons'] ?? [], fn($s) => $s['slug'] !== $S['slug']);
 
+// the heat map is drawn in the browser from the incidents themselves: only what it reads is sent
+$slim = fn(array $evs) => array_map(fn($e) => [
+    'pct' => $e['pct'], 'driver' => $e['driver'], 'team' => $e['team'], 'ai' => $e['ai'], 'lap' => $e['lap'],
+    'kind' => $e['kind'], 'round' => $e['round'], 'season' => $e['season'] ?? null,
+], $evs);
 $payload = [
     'track' => $tp['track'],
     'map' => $info['map'] ?? null,
     'lengthM' => $tp['hotspots']['length_m'] ?? $info['length_m'] ?? null,
-    'season' => $tp['hotspots'],
-    'byRound' => (object) $tp['by_round'],
-    'all' => $otherSeasons && !empty($info['hotspots_all']) ? $info['hotspots_all'] : null,
+    'events' => $tp['hotspots'] ? $slim($tp['hotspots']['events']) : null,
+    'all' => $otherSeasons && !empty($info['hotspots_all']) ? $slim($info['hotspots_all']['events']) : null,
     'harvested' => $tp['harvested_rounds'],
     'pending' => $tp['pending'],
     'splits' => $tp['splits'],
@@ -31,7 +35,7 @@ $roundsText = implode(' · ', array_map(fn($r) => 'Round ' . $r['round'] . ' · 
 <div class="phead">
   <span class="kicker"><?= $roundsText ?></span>
   <h1><?= e($tp['track']) ?></h1>
-  <p><mark><?= $tp['laps'] ?> team laps</mark><?= $info && $info['length_m'] ? ' · ' . e(F::km($info['length_m'])) . ' lap' : '' ?> · crash hotspots and sector splits come from the race replay</p>
+  <p><mark><?= $tp['laps'] ?> team laps</mark><?= $info && $info['length_m'] ? ' · ' . e(F::km($info['length_m'])) . ' lap' : '' ?> · the crash heat map and sector splits come from the race replay</p>
 </div>
 
 <nav class="picker" aria-label="Tracks">
@@ -54,7 +58,7 @@ $roundsText = implode(' · ', array_map(fn($r) => 'Round ' . $r['round'] . ' · 
 <div id="track-app" class="track-app">
   <script type="application/json" id="track-data"><?= UI::json($payload) ?></script>
   <noscript>
-    <div class="panel" style="margin-top:var(--gap)"><div class="panel-b">The track map, hotspots and sector splits need JavaScript.</div></div>
+    <div class="panel" style="margin-top:var(--gap)"><div class="panel-b">The track map, heat map and sector splits need JavaScript.</div></div>
   </noscript>
 </div>
 
@@ -86,7 +90,7 @@ $roundsText = implode(' · ', array_map(fn($r) => 'Round ' . $r['round'] . ' · 
 <div class="g2 g">
   <?php foreach ($rounds as $r): ?>
     <?= UI::panel('Round ' . $r['round'] . ' result', '') ?>
-      <p class="note" style="margin:0"><?= F::date($r['date'], false) ?> · <?= $r['humans'] ?> drivers + <?= $r['ai'] ?> AI · <?= $r['laps'] ?> laps · SoF <?= $r['sof'] ?? F::DASH ?></p>
+      <p class="note" style="margin:0"><?= F::date($r['date'], false) ?> · <?= $r['humans'] ?> drivers + <?= $r['ai'] ?> AI · <?= $r['laps'] ?> laps · team SoF <?= F::int($r['sof']) ?><?= ($r['field']['ai_rating'] ?? null) !== null ? ' · AI field ' . F::approx($r['field']['ai_rating']) . ' (estimated)' : '' ?></p>
       <dl class="dl">
         <dt>Winner</dt><dd><?= UI::driver($r['winner'], $r['winner_ai']) ?></dd>
         <dt>Pole</dt><dd><?= UI::driver($r['pole'], $r['pole_ai']) ?></dd>

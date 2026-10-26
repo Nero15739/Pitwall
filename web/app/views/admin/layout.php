@@ -5,7 +5,7 @@ use PitWall\Http;
 use PitWall\UI;
 
 /** @var string $content @var ?array $user @var array $flash @var string $route */
-$tabs = ['admin/dashboard' => ['admin', 'Dashboard'], 'admin/races' => ['admin/races', 'Races'], 'admin/keys' => ['admin/keys', 'API keys'], 'admin/settings' => ['admin/settings', 'Settings']];
+$tabs = ['admin/dashboard' => ['admin', 'Dashboard'], 'admin/races' => ['admin/races', 'Races'], 'admin/incidents' => ['admin/incidents', 'Incidents'], 'admin/keys' => ['admin/keys', 'API keys'], 'admin/settings' => ['admin/settings', 'Settings']];
 ?><!doctype html>
 <html lang="en" data-theme="light">
 <head>
@@ -18,7 +18,7 @@ $tabs = ['admin/dashboard' => ['admin', 'Dashboard'], 'admin/races' => ['admin/r
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="<?= e(Http::asset('css/pitwall.css')) ?>">
-<script nonce="<?= e(Http::nonce()) ?>">(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('pitwall-theme')}catch(e){}d.dataset.theme=s||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')})();</script>
+<?= Http::bootScript() ?>
 <script src="<?= e(Http::asset('js/pitwall.js')) ?>" defer></script>
 </head>
 <body class="admin" data-base="<?= e(Http::base()) ?>">
@@ -40,13 +40,7 @@ $tabs = ['admin/dashboard' => ['admin', 'Dashboard'], 'admin/races' => ['admin/r
   <div class="chequer" aria-hidden="true"></div>
 </header>
 <?php if ($user): ?>
-<nav class="tabs" aria-label="Admin pages">
-  <div class="wrap"><ul>
-    <?php foreach ($tabs as $view => [$href, $label]): ?>
-      <li><a href="<?= e(Http::url($href)) ?>"<?= $route === $view ? ' aria-current="page"' : '' ?>><?= e($label) ?></a></li>
-    <?php endforeach ?>
-  </ul></div>
-</nav>
+<?= UI::tabs('Admin pages', array_map(fn($view, $t) => ['href' => Http::url($t[0]), 'label' => $t[1], 'current' => $route === $view], array_keys($tabs), $tabs)) ?>
 <?php endif ?>
 <main id="main" class="wrap main">
   <?php foreach ($flash as $f): ?>

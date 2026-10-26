@@ -15,6 +15,12 @@ __pycache__/
 # Pit Wall web (PHP): database, compiled data, logs and secrets stay on the server
 /web/storage/
 /web/config.php
-# API key for pushing from this PC
+# site address and API key for pushing from this PC
+.env
 .pitwall-key
 /dist/
+# Hostinger deploy target (account details stay out of the public repo)
+/.hostinger/
+# Pit Wall Logger build output
+/app/**/bin/
+/app/**/obj/

@@ -4,7 +4,7 @@ use PitWall\F;
 use PitWall\Http;
 use PitWall\UI;
 
-/** @var array $seasons @var array $races @var array $harvests */
+/** @var array $seasons @var array $races @var array $harvests @var array $schedules */
 $post = fn(string $action) => e(Http::url('admin/' . $action));
 ?>
 <div class="phead">
@@ -46,6 +46,42 @@ $post = fn(string $action) => e(Http::url('admin/' . $action));
     <label class="field grow"><span>New empty season</span><input class="input" name="name" maxlength="80" placeholder="e.g. Asia 2027" required></label>
     <div class="field"><span>&nbsp;</span><button class="btn" type="submit">Create season</button></div>
   </form>
+<?= UI::end() ?>
+
+<?= UI::panel('Season schedules', 'The rounds still to come. Upload a schedule file from the dashboard like any other file; a new one replaces the old.') ?>
+  <?php if (!$seasons): ?><p class="muted">Create a season first.</p><?php else: ?>
+  <div class="scroll">
+    <table class="tbl compact">
+      <thead><tr><th>Season</th><th class="num">Rounds on schedule</th><th>Uploaded</th><th></th><th></th></tr></thead>
+      <tbody>
+        <?php foreach ($seasons as $s): $sc = $schedules[$s['id']] ?? null; ?>
+          <tr>
+            <td class="strong"><?= e($s['name']) ?></td>
+            <td class="num"><?= $sc ? (int) $sc['n_rounds'] : '<span class="dim">none</span>' ?></td>
+            <td class="mono dim"><?= $sc ? e(F::ago($sc['uploaded_at'])) . ' · ' . e($sc['uploaded_by']) . ' · ' . e($sc['filename']) : 'no schedule yet' ?></td>
+            <td><a class="btn btn-sm" href="<?= e(Http::url('admin/schedule/download')) ?>?season=<?= (int) $s['id'] ?>"><?= UI::icon('download', 14) ?> <?= $sc ? 'Download' : 'Starter file' ?></a></td>
+            <td class="num">
+              <?php if ($sc): ?>
+                <form method="post" action="<?= $post('schedule/delete') ?>" data-confirm="Remove the schedule for <?= e($s['name']) ?>? Its upcoming rounds leave the site straight away."><?= Auth::field() ?>
+                  <input type="hidden" name="id" value="<?= (int) $s['id'] ?>">
+                  <button class="btn btn-sm btn-danger" type="submit" aria-label="Remove the schedule for <?= e($s['name']) ?>"><?= UI::icon('trash', 14) ?></button></form>
+              <?php endif ?>
+            </td>
+          </tr>
+        <?php endforeach ?>
+      </tbody>
+    </table>
+  </div>
+  <pre class="code">{
+  "type": "schedule",
+  "season": "Europe",
+  "rounds": [
+    { "date": "2026-11-02T19:30:00+11:00", "track": "Hungaroring", "track_id": 413, "laps": 14, "note": "Night race" },
+    { "date": "2026-11-16", "track": "Autodromo Nazionale Monza", "config": "Grand Prix" }
+  ]
+}</pre>
+  <p class="note">Each round needs a <strong>track</strong> and a <strong>date</strong> (a day, or a time with its UTC offset). Optional: <code class="k">config</code>, <code class="k">laps</code> or <code class="k">minutes</code>, <code class="k">cars</code>, <code class="k">note</code>, and <code class="k">track_id</code> (iRacing’s track number, which draws the map; tracks already raced are recognised by name). List the whole season or only what’s left: a round counts as raced once a result at that track, within three weeks of its date, is uploaded.</p>
+  <?php endif ?>
 <?= UI::end() ?>
 
 <?= UI::panel('Race results', count($races) . ' stored, newest first') ?>

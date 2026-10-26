@@ -21,7 +21,8 @@ $last = (string) $R[count($R) - 1]['round'];
   <?php foreach ($R as $r): $cp = $r['car_pace']; ?>
     <div class="g2"<?= UI::pane('cars-round', $r['round'], $last) ?>>
       <div>
-        <p class="note" style="margin:0 0 12px"><?= e($r['track']) ?> · <?= $r['starters'] ?> cars</p>
+        <p class="note" style="margin:0 0 12px"><?= e($r['track']) ?> · <?= $r['starters'] ?> cars<?php if (($r['field']['ai_rating'] ?? null) !== null): ?>
+          · team SoF <?= F::int($r['sof'] ?? $r['field']['team_sof']) ?> · AI field <?= F::approx($r['field']['ai_rating']) ?> iRating (estimated)<?php endif ?></p>
         <?= UI::bars(array_map(fn($c) => [
             'label' => F::carShort($c['car']), 'value' => $c['best'] - $cp[0]['best'],
             'text' => $c === $cp[0] ? F::lap($c['best']) : '+' . Num::fixed($c['best'] - $cp[0]['best'], 3) . 's',

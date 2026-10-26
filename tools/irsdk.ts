@@ -140,8 +140,12 @@ export class IRSDK {
     return sdk;
   }
 
+  /** Every telemetry variable the sim publishes. */
+  get varList(): VarHeader[] { return [...this.vars.values()]; }
   private i32(o: number) { return this.mem.getInt32(o, true); }
   get connected() { return (this.i32(4) & STATUS_CONNECTED) !== 0; }
+  /** Telemetry ticks per second the sim publishes (60). */
+  get tickRate() { return this.i32(8); }
   get sessionInfoUpdate() { return this.i32(12); }
 
   private loadVars() {
@@ -171,14 +175,23 @@ export class IRSDK {
     throw new Error('telemetry buffer kept changing while reading');
   }
 
+  /** The session info YAML as the sim wrote it. Re-read if the sim rewrote it mid-copy. */
+  sessionInfoText(): string {
+    for (let attempt = 0; ; attempt++) {
+      const upd = this.sessionInfoUpdate;
+      const len = this.i32(16), off = this.i32(20);
+      const raw = new Uint8Array(this.mem.buffer, this.mem.byteOffset + off, len);
+      const end = raw.indexOf(0);
+      const text = new TextDecoder('latin1').decode(raw.subarray(0, end < 0 ? len : end));
+      if (this.sessionInfoUpdate === upd || attempt >= 4) return text;
+    }
+  }
+
   /** Parsed session info YAML (re-parsed only when the sim bumps sessionInfoUpdate). */
   sessionInfo(): any {
     const upd = this.sessionInfoUpdate;
     if (upd !== this.infoUpdate || !this.info) {
-      const len = this.i32(16), off = this.i32(20);
-      const raw = new Uint8Array(this.mem.buffer, this.mem.byteOffset + off, len);
-      const end = raw.indexOf(0);
-      this.info = parseSessionInfo(new TextDecoder('latin1').decode(raw.subarray(0, end < 0 ? len : end)));
+      this.info = parseSessionInfo(this.sessionInfoText());
       this.infoUpdate = upd;
     }
     return this.info;

@@ -25,7 +25,7 @@ $maxMb = min((int) Config::get('max_upload_mb', 10), (int) ini_get('upload_max_f
 </div>
 
 <div class="g-3-2 g">
-  <?= UI::panel('Upload files', 'Event results (eventresult-*.json from iRacing) and harvested replays (incidents-*.json). Pick several at once; each is recognised automatically.') ?>
+  <?= UI::panel('Upload files', 'Event results (eventresult-*.json from iRacing), harvested replays (incidents-*.json) and season schedules (the rounds still to come; see Races for the format). Pick several at once; each is recognised automatically.') ?>
     <form method="post" action="<?= e(Http::url('admin/upload')) ?>" enctype="multipart/form-data" class="stack">
       <?= Auth::field() ?>
       <label class="drop">
@@ -36,7 +36,7 @@ $maxMb = min((int) Config::get('max_upload_mb', 10), (int) ini_get('upload_max_f
         <ul class="drop-list"></ul>
       </label>
       <div class="row">
-        <label class="field grow"><span>Season for race results</span>
+        <label class="field grow"><span>Season for race results and schedules</span>
           <select class="select" name="season">
             <option value="">Auto: match the league season, or a re-uploaded race’s current season</option>
             <?php foreach ($seasons as $s): ?><option value="<?= e($s['name']) ?>"><?= e($s['name']) ?> (<?= (int) $s['races'] ?> races)</option><?php endforeach ?>

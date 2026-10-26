@@ -10,7 +10,7 @@ use RuntimeException;
 final class Race
 {
     /** Bump when the record changes shape: stored records are reprocessed from the raw export. */
-    public const VERSION = 1;
+    public const VERSION = 2;
 
     public static function process(array $raw, string $file): array
     {
@@ -43,10 +43,15 @@ final class Race
             $cid = $r['cust_id'];
             $points = array_key_exists('league_points', $r) ? $r['league_points'] : ($r['champ_points'] ?? 0);
             $interval = $r['interval'] ?? null;
+            $ai = (bool) ($r['ai'] ?? false);
+            // the rating a driver took into the race; AI cars have none
+            $ir = $r['oldi_rating'] ?? null;
+            if (!is_int($ir) || $ir <= 0) $ir = $r['newi_rating'] ?? null;
             $entries[] = [
                 'cust_id' => $cid,
                 'name' => (string) $r['display_name'],
-                'ai' => (bool) ($r['ai'] ?? false),
+                'ai' => $ai,
+                'irating' => !$ai && is_int($ir) && $ir > 0 ? $ir : null,
                 'car' => (string) $r['car_name'],
                 'car_id' => $r['car_id'] ?? null,
                 'start' => $r['starting_position'] + 1,

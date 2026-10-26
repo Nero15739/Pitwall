@@ -2,6 +2,7 @@
 use PitWall\F;
 use PitWall\Http;
 use PitWall\Num;
+use PitWall\Site;
 use PitWall\UI;
 
 /** @var array $S @var array $tracks */
@@ -18,13 +19,31 @@ $hardest = $hard[0];
 $hardRound = array_values(array_filter($R, fn($r) => $r['round'] === $hardest['round']))[0];
 $winners = implode(' · ', array_map(fn($s) => F::firstName($s['driver']) . ' ' . $s['wins'], array_filter($st, fn($s) => $s['wins'])));
 $u = fn(string $p) => e(Http::url($S['slug'] . $p));
+$cal = Site::calendar($S);
+$next = $cal['next'];
+$mapOf = fn(array $c) => $c['track_id'] !== null ? ($tracks[(string) $c['track_id']]['map'] ?? null) : null;
+$format = fn(array $c) => implode(' · ', array_filter([$c['laps'] ? F::plural($c['laps'], 'lap') : null, $c['minutes'] ? $c['minutes'] . ' min' : null, $c['cars']]));
 ?>
 <div class="phead">
   <span class="kicker"><?= e($S['league']) ?></span>
   <h1><?= e($S['season']) ?> season</h1>
-  <p><mark><?= e(F::plural(count($R), 'round')) ?></mark> <?= F::date($R[0]['date']) ?> → <?= F::date($R[count($R) - 1]['date']) ?> · <?= count($S['drivers']) ?> team drivers against the AI field</p>
+  <p><mark><?= $cal['ahead'] ? count($R) . ' of ' . $cal['total'] . ' rounds raced' : e(F::plural(count($R), 'round')) ?></mark> <?= F::date($R[0]['date']) ?> → <?= F::date($R[count($R) - 1]['date']) ?> · <?= count($S['drivers']) ?> team drivers against the AI field</p>
 </div>
 
+<?php if ($next): ?>
+<a class="card nextup" href="<?= $u('/calendar') ?>#r<?= (int) $next['n'] ?>">
+  <span class="nextup-k">Next up · Round <?= (int) $next['n'] ?></span>
+  <div class="nextup-b">
+    <div class="nextup-t">
+      <div class="nextup-n"><?= e($next['track']) ?></div>
+      <div class="nextup-w"><?= F::date($next['date'], 'when') ?><?= $format($next) !== '' ? ' · ' . e($format($next)) : '' ?></div>
+      <?php if ($next['note']): ?><div class="nextup-x"><?= e($next['note']) ?></div><?php endif ?>
+    </div>
+    <?= UI::outline($mapOf($next), 'nextup-map') ?>
+    <div class="nextup-c"><b><?= F::until($next['date']) ?></b><span><?= F::plural(count($cal['ahead']), 'round') ?> to go <?= UI::icon('arrow', 14) ?></span></div>
+  </div>
+</a>
+<?php endif ?>
 <div class="g4 tiles">
   <?= UI::tile('Championship leader', '<span>' . e(F::firstName($lead['driver'])) . '</span>', "{$lead['points']} pts",
       isset($st[1]) ? ($lead['points'] - $st[1]['points']) . ' pts clear of ' . F::firstName($st[1]['driver']) : '', 'hot') ?>
@@ -87,7 +106,32 @@ $u = fn(string $p) => e(Http::url($S['slug'] . $p));
         <dt>Field</dt><dd class="mono"><?= $r['humans'] ?> + <?= $r['ai'] ?> AI · <?= $r['laps'] ?> laps</dd>
         <dt>Team inc</dt><dd class="mono"><?= $r['team_inc'] ?>x</dd>
       </dl>
-      <span class="rcard-go"><span><?= $r['harvested'] ? 'Map · hotspots · splits' : 'Track map · incidents' ?></span><?= UI::icon('arrow', 16) ?></span>
+      <span class="rcard-go"><span><?= $r['harvested'] ? 'Map · heat map · splits' : 'Track map · incidents' ?></span><?= UI::icon('arrow', 16) ?></span>
     </a>
   <?php endforeach ?>
 </div>
+
+<?php if ($cal['ahead']): ?>
+<h2 class="h2">Still to come</h2>
+<div class="g4">
+  <?php foreach ($cal['ahead'] as $c): $isNext = $next && $c['n'] === $next['n']; $late = F::daysUntil($c['date']) < 0; ?>
+    <a class="card rcard ahead<?= $isNext ? ' next' : '' ?>" href="<?= $u('/calendar') ?>#r<?= (int) $c['n'] ?>">
+      <span class="rcard-band"></span>
+      <div class="rcard-top">
+        <span class="rcard-num" aria-hidden="true"><?= str_pad((string) $c['n'], 2, '0', STR_PAD_LEFT) ?></span>
+        <div style="min-width:0;position:relative">
+          <div class="rcard-k">Round <?= (int) $c['n'] ?> · <?= F::date($c['date'], false) ?></div>
+          <div class="rcard-t"><?= e($c['track']) ?></div>
+        </div>
+        <?= UI::outline($mapOf($c)) ?>
+      </div>
+      <dl>
+        <dt>When</dt><dd><?= F::date($c['date'], 'daytime') ?></dd>
+        <?php if ($format($c) !== ''): ?><dt>Format</dt><dd><?= e($format($c)) ?></dd><?php endif ?>
+        <?php if ($c['note']): ?><dt>Note</dt><dd title="<?= e($c['note']) ?>"><?= e($c['note']) ?></dd><?php endif ?>
+      </dl>
+      <span class="rcard-go"><span><?= $late ? 'Result pending' : ($isNext ? 'Next up · ' : '') . F::until($c['date']) ?></span><?= UI::icon('calendar', 16) ?></span>
+    </a>
+  <?php endforeach ?>
+</div>
+<?php endif ?>

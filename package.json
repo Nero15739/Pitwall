@@ -1,6 +1,6 @@
 {
   "name": "pitwall",
-  "version": "3.0.0",
+  "version": "3.4.0",
   "private": true,
   "type": "module",
   "description": "Pit Wall: iRacing league site (PHP, for Hostinger) plus the local replay harvester and push tools",
@@ -16,7 +16,8 @@
     "package": "powershell -NoProfile -ExecutionPolicy Bypass -File deploy/package-web.ps1",
     "check": "tsc -p tools",
     "test": "node --test \"tools/test/*.test.ts\"",
-    "test:php": "php tests/parity.php"
+    "test:php": "php tests/parity.php",
+    "probe": "node tools/probe.ts"
   },
   "dependencies": {
     "yaml": "^2.9.1"

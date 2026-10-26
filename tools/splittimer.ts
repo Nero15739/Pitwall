@@ -1,6 +1,7 @@
 /* Times cars across sector lines from sampled lap-distance positions.
    Feed it (car, lap distance, session time) samples in time order; it interpolates the moment
-   each sector line was crossed and returns every lap that saw all of its lines. */
+   each sector line was crossed and returns every lap that saw all of its lines.
+   The Pit Wall Logger has a line-for-line C# port (app/PitWallLogger/HarvestParts.cs): change both. */
 
 export interface TimedLap { car: number; lap: number; start: number; sectors: number[]; lap_time: number; pit: boolean }
 

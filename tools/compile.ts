@@ -6,15 +6,16 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
-import type { HarvestFile, IncidentEvent, Season, SeasonIndex, TrackInfo, TracksFile } from './lib/types.ts';
+import type { CalendarEntry, HarvestFile, IncidentEvent, ScheduleEntry, Season, SeasonIndex, TrackInfo, TracksFile } from './lib/types.ts';
 import { type Config, loadConfig } from './lib/config.ts';
 import { atomicWrite, fileSig } from './lib/util.ts';
 import { hotspotSet } from './stats/hotspots.ts';
 import { processRace, type Race } from './stats/race.ts';
+import { knownTracks, normalizeSchedule } from './stats/schedule.ts';
 import { buildSeason } from './stats/season.ts';
 import { loadTrackMaps } from './trackmaps.ts';
 
-const BUILD_VERSION = 1; // bump to invalidate every cached race
+const BUILD_VERSION = 2; // bump to invalidate every cached race
 const RESERVED = new Set(['incidents']);
 
 /** Every folder under dataDir holding eventresult-*.json files is a season. */
@@ -31,6 +32,11 @@ export function findSeasons(cfg: Config): Map<string, string[]> {
     if (files.length) seasons.set(d.name, files);
   }
   return seasons;
+}
+
+/** Each season's schedule of rounds still to come: data/<season>/schedule.json, where there is one. */
+export function scheduleFiles(cfg: Config): string[] {
+  return [...findSeasons(cfg).keys()].map(name => join(cfg.dataDir, name, 'schedule.json')).filter(f => existsSync(f));
 }
 
 export function incidentFiles(cfg: Config): string[] {
@@ -64,6 +70,12 @@ function matchIncidents(race: Race, h: HarvestFile): Omit<IncidentEvent, 'round'
       lap: i.lap, t: i.t, kind: i.kind ?? (i.off_track ? 'off' : 'spin'), off: i.off_track,
     };
   });
+}
+
+/** The replay's lap chart with each car as its customer ID, the way the race export knows it. */
+function lapOrder(h: HarvestFile): number[][] | undefined {
+  const ids = new Map(h.drivers.map(d => [d.car_idx, d.cust_id]));
+  return h.lap_order?.map(lap => lap.map(car => ids.get(car)).filter((id): id is number => id !== undefined));
 }
 
 export interface CompileResult { seasons: number; races: number; changed: number; errors: string[]; ms: number }
@@ -104,6 +116,22 @@ export async function compile({ force = false, log = console.log } = {}): Promis
     }
   }
 
+  // ---- schedules: the rounds still to come, by season
+  const schedules = new Map<string, ScheduleEntry[]>();
+  for (const name of loaded.keys()) {
+    const f = join(cfg.dataDir, name, 'schedule.json');
+    if (!existsSync(f)) continue;
+    try {
+      const doc = JSON.parse(readFileSync(f, 'utf8').replace(/^\uFEFF/, ''));
+      if (!Array.isArray(doc?.rounds)) throw new Error('expected {"type": "schedule", "rounds": [...]}');
+      schedules.set(name, normalizeSchedule(doc.rounds));
+    } catch (e) {
+      errors.push(`${relative(cfg.dataDir, f)}: ${(e as Error).message}`);
+    }
+  }
+  // a scheduled track with no id borrows it from any race already held there
+  const known = knownTracks([...loaded.values()].flat());
+
   // colour slots are assigned once across every season so a driver keeps their colour
   const palette = [...humans].sort();
   const colorOf = (d: string) => Math.max(0, palette.indexOf(d)) % 8;
@@ -116,15 +144,16 @@ export async function compile({ force = false, log = console.log } = {}): Promis
     const incidents: Parameters<typeof buildSeason>[0]['incidents'] = new Map();
     for (const r of races) {
       const h = harvests.get(r.subsession);
-      if (h) incidents.set(r.subsession, { events: matchIncidents(r, h), length_m: h.track.length_m, splits: h.splits, raw: h.incidents });
+      if (h) incidents.set(r.subsession, { events: matchIncidents(r, h), length_m: h.track.length_m, splits: h.splits, raw: h.incidents, order: lapOrder(h) });
     }
-    const season = buildSeason({ name, races, colorOf, incidents, generated });
+    const season = buildSeason({ name, races, colorOf, incidents, generated, schedule: schedules.get(name) ?? [], known });
     built.push(season);
     const file = `season-${season.slug}.json`;
     atomicWrite(join(cfg.dataOut, file), season);
     const R = season.rounds;
     index.push({
       name, slug: season.slug, league: season.league, rounds: R.length,
+      upcoming: season.calendar.length - R.length,
       first: R[0].date, last: R[R.length - 1].date,
       leader: season.standings[0]?.driver ?? null, file,
     });
@@ -132,10 +161,21 @@ export async function compile({ force = false, log = console.log } = {}): Promis
   index.sort((a, b) => (a.last < b.last ? 1 : a.last > b.last ? -1 : 0));
 
   // ---- tracks: geometry + every season's hotspots at each track
-  const ids = [...new Set(built.flatMap(s => s.rounds.map(r => r.track_id)))];
+  const raced = [...new Set(built.flatMap(s => s.rounds.map(r => r.track_id)))];
+  // tracks still to come get a map too
+  const ahead = new Map<number, CalendarEntry>();
+  for (const c of built.flatMap(s => s.calendar)) {
+    if (c.status === 'upcoming' && c.track_id !== null && !raced.includes(c.track_id) && !ahead.has(c.track_id)) ahead.set(c.track_id, c);
+  }
+  const ids = [...raced, ...ahead.keys()];
   const maps = await loadTrackMaps(cfg, ids, log);
   const tracks: Record<string, TrackInfo> = {};
   for (const id of ids) {
+    const c = ahead.get(id);
+    if (c) {
+      tracks[String(id)] = { id, name: c.track, short: c.track_short, map: maps.get(id) ?? null, length_m: null, seasons: [], hotspots_all: null };
+      continue;
+    }
     const pages = built.flatMap(s => s.track_pages.filter(p => p.track_id === id).map(p => ({ s, p })));
     const events = pages.flatMap(({ s, p }) => (p.hotspots?.events ?? []).map(e => ({ ...e, season: s.slug })));
     const lengthM = pages.find(({ p }) => p.hotspots?.length_m)?.p.hotspots?.length_m ?? null;
@@ -171,7 +211,7 @@ export async function compile({ force = false, log = console.log } = {}): Promis
 /** Signature of every input file, so the watcher can tell when something changed. */
 export function snapshot(): string {
   const cfg = loadConfig();
-  const files = [...findSeasons(cfg).values()].flat().concat(incidentFiles(cfg));
+  const files = [...findSeasons(cfg).values()].flat().concat(incidentFiles(cfg), scheduleFiles(cfg));
   const extra = join(cfg.dataDir, 'track-overrides.json');
   if (existsSync(extra)) files.push(extra);
   return files.map(f => { try { return `${f}:${fileSig(f)}`; } catch { return f; } }).join('|');

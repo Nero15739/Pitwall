@@ -45,11 +45,41 @@
     try { localStorage.setItem('pitwall-theme', d.dataset.theme); } catch { /* private mode */ }
   });
 
+  // ---------------------------------------------------------------- page tabs behind a menu button (small screens)
+  const tabs = $('[data-tabs]'), tabsBtn = tabs && $('[data-tabs-toggle]', tabs);
+  if (tabsBtn) {
+    const isOpen = () => tabs.classList.contains('open');
+    const setOpen = on => { tabs.classList.toggle('open', on); tabsBtn.setAttribute('aria-expanded', String(on)); };
+    tabsBtn.addEventListener('click', () => setOpen(!isOpen()));
+    document.addEventListener('click', e => { if (isOpen() && !tabs.contains(e.target)) setOpen(false); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && isOpen()) { setOpen(false); tabsBtn.focus(); } });
+    tabs.addEventListener('focusout', e => { if (isOpen() && e.relatedTarget && !tabs.contains(e.relatedTarget)) setOpen(false); });
+    matchMedia('(max-width: 860px)').addEventListener('change', () => setOpen(false));
+  }
+
   // ---------------------------------------------------------------- local dates
+  const DATE_FMT = {
+    long: { day: 'numeric', month: 'short', year: 'numeric' },
+    short: { day: 'numeric', month: 'short' },
+    weekday: { weekday: 'short' },
+    daytime: { weekday: 'short' },
+    when: { weekday: 'short', day: 'numeric', month: 'short' },
+  };
   for (const t of $$('time[data-fmt]')) {
     const d = new Date(t.getAttribute('datetime'));
     if (isNaN(d)) continue;
-    t.textContent = d.toLocaleDateString(undefined, t.dataset.fmt === 'short' ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
+    // a schedule date with no time is the same calendar day for every reader
+    const day = t.hasAttribute('data-day'), f = t.dataset.fmt;
+    const date = d.toLocaleDateString(undefined, { ...(DATE_FMT[f] ?? DATE_FMT.long), ...(day ? { timeZone: 'UTC' } : {}) });
+    t.textContent = !day && (f === 'when' || f === 'daytime') ? `${date} · ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}` : date;
+  }
+  // countdowns to the rounds still to come, by the reader's own calendar
+  const dayNumber = (d, utc) => Math.floor((utc ? Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) : Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) / 864e5);
+  for (const el of $$('[data-until]')) {
+    const d = new Date(el.dataset.until);
+    if (isNaN(d)) continue;
+    const n = dayNumber(d, el.hasAttribute('data-day')) - dayNumber(new Date(), false);
+    el.textContent = n === 0 ? 'today' : n === 1 ? 'tomorrow' : n === -1 ? 'yesterday' : n > 1 ? `in ${n} days` : `${-n} days ago`;
   }
 
   // ---------------------------------------------------------------- tooltip
@@ -110,7 +140,21 @@
     const section = parts[1] && parts[1] !== 'tracks' ? '/' + parts[1] : parts[1] === 'tracks' ? '/tracks' : '';
     location.href = `${base}/${encodeURIComponent(pick.value)}${section}`;
   });
+  if (pick) {
+    // a phone's masthead has room for the season's name, not its round count as well
+    const narrow = matchMedia('(max-width: 560px)');
+    const fit = () => {
+      for (const o of pick.options) {
+        o.dataset.long ??= o.textContent;
+        o.textContent = narrow.matches && o.dataset.short ? o.dataset.short : o.dataset.long;
+      }
+    };
+    narrow.addEventListener('change', fit);
+    fit();
+  }
   for (const s of $$('select[data-autosubmit]')) s.addEventListener('change', () => s.form?.requestSubmit());
+  // typing in a field picks the option it belongs to (admin: an incident cut-off time)
+  for (const i of $$('input[data-pick]')) i.addEventListener('input', () => { const r = document.getElementById(i.dataset.pick); if (r) r.checked = true; });
 
   // ---------------------------------------------------------------- line charts
   function niceScale(lo, hi, count = 4) {
@@ -200,13 +244,16 @@
       tipEl.style.left = (xa + 14 + w > width ? xa - 14 - w : xa + 14) + 'px';
       tipEl.style.top = M.t + 'px';
     }
-    plot.addEventListener('pointermove', e => {
+    const point = e => {
       if (!e.target.closest('.hit') && !e.target.closest('.pt')) return;
       const r = plot.getBoundingClientRect(), px = e.clientX - r.left;
       const i = Math.max(0, Math.min(n - 1, Math.floor(((px - M.l) / Math.max(1, width - M.l - M.r)) * n)));
       if (i !== active) { active = i; mark(); }
-    });
-    plot.addEventListener('pointerleave', () => { active = null; mark(); });
+    };
+    plot.addEventListener('pointermove', point);
+    plot.addEventListener('pointerdown', point); // a tap on a touch screen never moves
+    // a finger lifting "leaves" too: keep what it picked until the chart loses focus
+    plot.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') { active = null; mark(); } });
     plot.addEventListener('keydown', e => {
       if (e.key === 'ArrowRight') active = active == null ? 0 : Math.min(n - 1, active + 1);
       else if (e.key === 'ArrowLeft') active = active == null ? n - 1 : Math.max(0, active - 1);
@@ -219,6 +266,21 @@
     new ResizeObserver(() => { if (plot.clientWidth !== width) draw(); }).observe(plot);
   }
   for (const el of $$('[data-chart]')) lineChart(el);
+
+  // ---------------------------------------------------------------- wide tables: mark the edge with more to scroll to
+  const edge = el => {
+    const more = el.scrollWidth - el.clientWidth - el.scrollLeft;
+    el.classList.toggle('more-l', el.scrollLeft > 2);
+    el.classList.toggle('more-r', more > 2);
+  };
+  const edges = () => { for (const el of $$('.scroll')) edge(el); };
+  window.PitWall.edges = edges; // track.js redraws its tables
+  document.addEventListener('scroll', e => { if (e.target.classList?.contains('scroll')) edge(e.target); }, { capture: true, passive: true });
+  document.addEventListener('pw:seg', edges);
+  document.addEventListener('toggle', edges, true);
+  addEventListener('resize', edges, { passive: true });
+  addEventListener('load', edges);
+  edges();
 
   // ---------------------------------------------------------------- new data banner
   const banner = $('[data-refresh]');
