@@ -21,9 +21,9 @@ $payload = [
 \PitWall\View::push('head', '<script src="' . e(Http::asset('js/track.js')) . '" defer></script>');
 ?>
 <div class="phead">
-  <span class="kicker"><a href="<?= e(Http::url('live')) ?>">Live sessions</a> · <?= e($d['session']['type']) ?> · <?= F::date($d['started'], 'when') ?></span>
+  <span class="kicker"><a href="<?= e(Http::url('live')) ?>">Live sessions</a> · <?= e($d['session']['type']) ?> · <?= $d['started'] ? F::date($d['started'], 'when') : F::DASH ?></span>
   <h1><?= e($d['track']['name']) ?></h1>
-  <p>Logged live by <?= e($d['recorded_by']['name']) ?><?= ($d['view'] ?? '') === 'Admin' ? ' (session admin)' : '' ?> · <?= count($d['drivers']) ?> cars, <?= $P['humans'] ?> human
+  <p>Logged live by <?= e($d['recorded_by']['name']) ?><?= ($d['view'] ?? '') === 'Admin' ? ' (session admin)' : '' ?> · <?= count($d['drivers']) ?> cars, <?= (int) $P['humans'] ?> human
     <?= $d['subsession'] ? ' · subsession ' . (int) $d['subsession'] : '' ?> · <mark>every incident point iRacing counted, as it happened</mark></p>
   <?php if (isset($d['cut'])): $late = F::plural(count($d['cut']['incidents']), 'incident') . ' (' . (int) $d['cut']['points'] . ' points)'; ?>
     <p><?= $d['cut']['mode'] === 'finish'
@@ -54,12 +54,12 @@ $payload = [
         <?php foreach ($P['rows'] as $r): ?>
           <tr>
             <td class="name"><?= UI::driver($r['name'], $r['ai']) ?></td>
-            <?php foreach (Live::KINDS as $k => $label): ?><td class="num"><?= $r['kinds'][$k] ?? F::DASH ?></td><?php endforeach ?>
-            <td class="num strong"><?= $r['points'] ?></td>
-            <td class="num dim"><?= $r['before'] ?: F::DASH ?></td>
-            <td class="num"><?= $r['final'] ?? F::DASH ?></td>
-            <td class="num <?= $r['missed'] === 0 ? 'good' : '' ?>"><?= $r['missed'] === null ? F::DASH : ($r['missed'] === 0 ? 'all' : $r['missed'] . ' missed') ?></td>
-            <td class="num dim"><?= $r['exact'] ?> of <?= $r['n'] ?></td>
+            <?php foreach (Live::KINDS as $k => $label): ?><td class="num"><?= isset($r['kinds'][$k]) ? (int) $r['kinds'][$k] : F::DASH ?></td><?php endforeach ?>
+            <td class="num strong"><?= (int) $r['points'] ?></td>
+            <td class="num dim"><?= (int) $r['before'] ?: F::DASH ?></td>
+            <td class="num"><?= $r['final'] === null ? F::DASH : (int) $r['final'] ?></td>
+            <td class="num <?= $r['missed'] === 0 ? 'good' : '' ?>"><?= $r['missed'] === null ? F::DASH : ($r['missed'] === 0 ? 'all' : (int) $r['missed'] . ' missed') ?></td>
+            <td class="num dim"><?= (int) $r['exact'] ?> of <?= (int) $r['n'] ?></td>
           </tr>
         <?php endforeach ?>
       </tbody>
@@ -75,7 +75,7 @@ $payload = [
         <?php foreach ($inc as $e): ?>
           <tr>
             <td class="mono"><?= Live::clock((float) $e['t']) ?></td>
-            <td class="num"><?= $e['lap'] ?? F::DASH ?></td>
+            <td class="num"><?= $e['lap'] === null ? F::DASH : (int) $e['lap'] ?></td>
             <td class="mono"><?= $where($e['pct']) ?></td>
             <td class="name"><?= UI::driver($e['name'], (bool) $e['ai']) ?></td>
             <td><?= e(Live::KINDS[$e['kind']] ?? $e['kind']) ?> <span class="dim"><?= (int) $e['delta'] ?>x</span></td>

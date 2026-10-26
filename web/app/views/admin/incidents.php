@@ -94,7 +94,7 @@ $changes = fn(array $o) => implode(', ', array_map(fn($x) => e($x['name']) . ' '
             <?php endif; endforeach ?>
               <tr class="<?= $e['out'] ? 'out' : '' ?>">
                 <td class="mono"><?= e(Cutoffs::clock($e['t'])) ?></td>
-                <td class="num"><?= $e['lap'] ?? F::DASH ?></td>
+                <td class="num"><?= isset($e['lap']) ? e($e['lap']) : F::DASH ?></td>
                 <td class="name"><?= UI::driver($e['name'], $e['ai']) ?></td>
                 <td><?= e($e['what']) ?><?= $e['points'] !== null ? ' <span class="dim">' . $e['points'] . 'x</span>' : '' ?><?= $e['done'] ? ' <span class="dim">· after finishing</span>' : '' ?></td>
                 <td class="dim"><?= e($e['from']) ?></td>
