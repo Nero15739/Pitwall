@@ -5,7 +5,7 @@ use PitWall\Http;
 use PitWall\UI;
 
 /** @var string $content @var ?array $user @var array $flash @var string $route */
-$tabs = ['admin/dashboard' => ['admin', 'Dashboard'], 'admin/races' => ['admin/races', 'Races'], 'admin/keys' => ['admin/keys', 'API keys'], 'admin/settings' => ['admin/settings', 'Settings']];
+$tabs = ['admin/dashboard' => ['admin', 'Dashboard'], 'admin/races' => ['admin/races', 'Races'], 'admin/incidents' => ['admin/incidents', 'Incidents'], 'admin/keys' => ['admin/keys', 'API keys'], 'admin/settings' => ['admin/settings', 'Settings']];
 ?><!doctype html>
 <html lang="en" data-theme="light">
 <head>

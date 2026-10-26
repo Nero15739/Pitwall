@@ -1,6 +1,8 @@
 <?php
 /* The compiler: stored race exports + harvested replays + track maps → the JSON the pages read.
-   Runs once per upload (not per page view), so pages only render precomputed numbers. */
+   Runs once per upload (not per page view), so pages only render precomputed numbers.
+   Race cut-offs set in the admin panel (Cutoffs) are applied as the data is loaded, so build()
+   stays the pure function that tests/parity.php checks against the Node compiler. */
 declare(strict_types=1);
 
 namespace PitWall;
@@ -141,13 +143,20 @@ final class Compiler
         try {
             $errors = [];
             $seasons = [];
+            $cuts = Cutoffs::all($store);       // where an admin said each race's incidents stop counting
+            $laps = [];                         // subsession → laps each driver completed, for "each driver's finish"
             foreach ($store->seasons() as $s) $seasons[$s['name']] = [];
             foreach ($store->racesForCompile() as $row) {
                 try {
+                    $sub = (int) $row['subsession'];
                     $race = $row['process_version'] === Race::VERSION ? json_decode($row['processed'], true) : null;
                     if (!$race) {
-                        $race = Race::process(Store::decodeRaw($store->raceRaw((int) $row['subsession'])), $row['filename']);
-                        $store->updateProcessed((int) $row['subsession'], $race);
+                        $race = Race::process(Store::decodeRaw($store->raceRaw($sub)), $row['filename']);
+                        $store->updateProcessed($sub, $race);
+                    }
+                    $laps[$sub] = Cutoffs::lapsOf($race);
+                    if (!empty($cuts[$sub]['official']) && ($liveLog = Live::raceLog($sub)) && ($late = Cutoffs::latePoints($liveLog, $cuts[$sub], $laps[$sub]))) {
+                        $race = Cutoffs::official($race, $late);
                     }
                     $seasons[$row['season']][] = $race;
                 } catch (\Throwable $e) {
@@ -157,7 +166,9 @@ final class Compiler
             $harvests = [];
             foreach ($store->harvestsForCompile() as $row) {
                 try {
-                    $harvests[(int) $row['subsession']] = Store::decodeRaw($row['raw']);
+                    $sub = (int) $row['subsession'];
+                    $h = Store::decodeRaw($row['raw']);
+                    $harvests[$sub] = isset($cuts[$sub]) ? Cutoffs::harvest($h, $cuts[$sub], $laps[$sub] ?? []) : $h;
                 } catch (\Throwable $e) {
                     $errors[] = "incidents-{$row['subsession']}.json: {$e->getMessage()}";
                 }

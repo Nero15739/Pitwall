@@ -41,6 +41,7 @@ final class Admin
                     '/races/move' => self::moveRace(),
                     '/races/delete' => self::deleteRace(),
                     '/harvests/delete' => self::deleteHarvest(),
+                    '/incidents/cut' => self::cutIncidents(),
                     '/schedule/delete' => self::deleteSchedule(),
                     '/seasons/create' => self::createSeason(),
                     '/seasons/rename' => self::renameSeason(),
@@ -65,6 +66,7 @@ final class Admin
                 'title' => 'Races', 'seasons' => self::$store->seasons(), 'races' => self::$store->races(), 'harvests' => self::$store->harvests(),
                 'schedules' => array_column(self::$store->schedules(), null, 'season_id'),
             ]),
+            '/incidents' => self::incidentsPage(),
             '/schedule/download' => self::downloadSchedule(),
             '/keys' => self::page('admin/keys', ['title' => 'API keys', 'keys' => self::$store->apiKeys(), 'newKey' => self::takeNewKey()]),
             '/settings' => self::page('admin/settings', [
@@ -231,6 +233,55 @@ final class Admin
         self::$store->deleteHarvest($sub);
         self::$store->log(self::actor(), 'harvest.delete', (string) $sub);
         self::recompile("Deleted the harvested replay for {$sub}.");
+    }
+
+    // ---------------------------------------------------------------- incident cut-offs
+    /** Each race's end: when the leader and the last car finished, the incidents around it, and where they stop counting. */
+    private static function incidentsPage(): never
+    {
+        $cuts = Cutoffs::all(self::$store);
+        $races = self::$store->races();
+        // round numbers within each season, oldest first
+        $round = [];
+        $bySeason = [];
+        foreach (array_reverse($races) as $r) $round[(int) $r['subsession']] = $bySeason[$r['season_id']] = ($bySeason[$r['season_id']] ?? 0) + 1;
+        $items = [];
+        foreach ($races as $r) {
+            $sub = (int) $r['subsession'];
+            $harvest = null;
+            if ((int) $r['harvested']) {
+                try { $harvest = Store::decodeRaw((string) self::$store->harvestRaw($sub)); } catch (\Throwable $e) { App::log($e); }
+            }
+            $record = json_decode((string) (self::$store->race($sub)['processed'] ?? ''), true) ?: null;
+            $items[] = Cutoffs::review($r + ['round' => $round[$sub]], $record, $harvest, Live::raceLog($sub), $cuts[$sub] ?? null);
+        }
+        self::page('admin/incidents', ['title' => 'Incidents', 'items' => $items]);
+    }
+
+    private static function cutIncidents(): never
+    {
+        $sub = self::sub();
+        $race = self::$store->race($sub) ?? throw new UserError('That race is no longer here.');
+        $mode = Http::post('preset') !== '' ? 'time' : Http::post('mode');
+        $official = Http::post('official') === '1';
+        $also = $official ? ', and in the official incident points' : '';
+        if ($mode === 'all') {
+            Cutoffs::set(self::$store, $sub, null, null, false, self::actor());
+            self::$store->log(self::actor(), 'incidents.cut', "{$sub} {$race['track']}: every incident counts");
+            self::recompile("{$race['track']}: every incident counts again.");
+        }
+        if ($mode === 'finish') {
+            Cutoffs::set(self::$store, $sub, 'finish', null, $official, self::actor());
+            self::$store->log(self::actor(), 'incidents.cut', "{$sub} {$race['track']}: each driver's finish" . ($official ? ', official points too' : ''));
+            self::recompile("{$race['track']}: each driver’s incidents now stop when they take the chequered flag{$also}.");
+        }
+        if ($mode !== 'time') throw new UserError('Choose where this race’s incidents stop counting.');
+        $until = Http::post('preset') !== '' ? (float) Http::post('preset') : Cutoffs::parse(Http::post('until'));
+        if ($until <= 0) throw new UserError('The cut-off has to be after the start of the race.');
+        Cutoffs::set(self::$store, $sub, 'time', $until, $official, self::actor());
+        $at = Cutoffs::clock($until);
+        self::$store->log(self::actor(), 'incidents.cut', "{$sub} {$race['track']}: up to {$at}" . ($official ? ', official points too' : ''));
+        self::recompile("{$race['track']}: incidents now count up to {$at}{$also}.");
     }
 
     private static function deleteSchedule(): never

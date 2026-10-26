@@ -60,6 +60,7 @@ final class Site
         if ($id === '') View::send(View::render('live/index', $vars + ['sessions' => Live::all(), 'pageTitle' => 'Live sessions']));
         $d = Live::load($id);
         if (!$d) App::error(404, 'Session not found', 'There’s no live log at this address.');
+        $d = Cutoffs::liveFrom(Store::open(), $d);
         View::send(View::render('live/session', $vars + [
             'd' => $d, 'id' => $id, 'P' => Live::page($d), 'map' => Live::map((int) ($d['track']['id'] ?? 0)), 'slots' => $slots,
             'pageTitle' => ($d['track']['short'] ?? '') ?: ($d['track']['name'] ?? 'Live session'),

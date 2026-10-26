@@ -93,7 +93,13 @@ second or so:
   files on the upload box. Results go into the season you pick, or one is chosen automatically: a re-upload stays
   where it was, a race from a league season the site already has joins that season, otherwise a new
   season named after the league season. Races can be moved between seasons, seasons renamed (the
-  name is the web address) and files removed under **Races**.
+  name is the web address) and files removed under **Races**. Under **Incidents**, each race's incidents
+  can be cut off at the end, so drivers playing around on the cool-down lap don't count: either when
+  each driver takes the chequered flag (anything on a lap after the laps they completed) or at a race
+  time (the page shows when the leader and the last car finished, and the incidents around then). The
+  cut applies to the replay harvest (heat maps, off/spins, awards) and the race's live log; with a live
+  log recorded by a session admin it can also take the points after the cut off the official incident
+  totals, which the race export alone can't split.
 - **The PC tools** (below): push files from `data/` over the API.
 - **The API** directly, from any script:
 

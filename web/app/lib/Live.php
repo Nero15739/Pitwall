@@ -42,19 +42,35 @@ final class Live
         return ['type' => 'live', 'status' => $status, 'id' => $id, 'incidents' => count($doc['incidents'])];
     }
 
+    /** A stored log as uploaded (Cutoffs::live gives it as shown). */
     public static function load(string $id): ?array
     {
         $p = self::path($id);
         return $p ? Files::readJson($p) : null;
     }
 
-    /** Every stored session, newest first, with what the list page shows. */
+    /** A subsession's race log as uploaded (its last race session, if there were heats). */
+    public static function raceLog(int $sub): ?array
+    {
+        if ($sub <= 0) return null;
+        $best = null;
+        foreach (glob(self::dir() . "/live-{$sub}-s*-*race*.json") ?: [] as $f) {
+            $d = Files::readJson($f);
+            if ($d && Cutoffs::isRace($d) && (int) ($d['subsession'] ?? 0) === $sub && (!$best || (int) $d['session']['num'] > (int) $best['session']['num'])) $best = $d;
+        }
+        return $best;
+    }
+
+    /** Every stored session, newest first, with what the list page shows (after any cut-off). */
     public static function all(): array
     {
         $out = [];
+        $store = Store::open();
+        $cuts = Cutoffs::all($store);
         foreach (glob(self::dir() . '/live-*.json') ?: [] as $f) {
             $d = Files::readJson($f);
             if (!$d) continue;
+            $d = Cutoffs::liveFrom($store, $d, $cuts);
             $out[] = [
                 'id' => basename($f, '.json'), 'track' => $d['track']['name'] ?? '?', 'type' => $d['session']['type'] ?? '?',
                 'started' => $d['started'] ?? null, 'incidents' => count($d['incidents']),
@@ -82,11 +98,15 @@ final class Live
             if (!empty($e['off_track_at'])) $r['exact']++;
             unset($r);
         }
+        // counted after the race's cut-off: on iRacing's final count, but left out here
+        $late = [];
+        foreach ($d['cut']['incidents'] ?? [] as $e) $late[$e['car_idx']] = ($late[$e['car_idx']] ?? 0) + $e['delta'];
         foreach ($rows as $car => &$r) {
             $final = $drivers[$car]['incident_count'] ?? null;
             $r['final'] = $final;
+            $r['late'] = $late[$car] ?? 0;
             $r['before'] = $r['first'];                              // already on the driver's count when logging began
-            $r['missed'] = $final !== null && $final >= 0 ? $final - $r['before'] - $r['points'] : null;
+            $r['missed'] = $final !== null && $final >= 0 ? $final - $r['before'] - $r['points'] - $r['late'] : null;
         }
         unset($r);
         uasort($rows, fn($a, $b) => $b['points'] <=> $a['points'] ?: strcmp($a['name'], $b['name']));

@@ -25,6 +25,11 @@ $payload = [
   <h1><?= e($d['track']['name']) ?></h1>
   <p>Logged live by <?= e($d['recorded_by']['name']) ?><?= ($d['view'] ?? '') === 'Admin' ? ' (session admin)' : '' ?> · <?= count($d['drivers']) ?> cars, <?= $P['humans'] ?> human
     <?= $d['subsession'] ? ' · subsession ' . (int) $d['subsession'] : '' ?> · <mark>every incident point iRacing counted, as it happened</mark></p>
+  <?php if (isset($d['cut'])): $late = F::plural(count($d['cut']['incidents']), 'incident') . ' (' . (int) $d['cut']['points'] . ' points)'; ?>
+    <p><?= $d['cut']['mode'] === 'finish'
+      ? "Each driver’s incidents count until they took the chequered flag: {$late} after that are left out."
+      : 'Counted up to <strong class="mono">' . e(\PitWall\Cutoffs::clock($d['cut']['until'])) . "</strong>, when the race ended: {$late} after it are left out." ?></p>
+  <?php endif ?>
 </div>
 
 <div class="g4 tiles">

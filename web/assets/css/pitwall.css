@@ -660,6 +660,25 @@ pre.code {
 [data-theme="dark"] pre.code { background: #000; color: var(--ink); }
 .newkey .input { font-size: 13px; }
 .admin .tbl td .btn-sm { white-space: nowrap; }
+/* incident cut-offs */
+.cutoff { margin-bottom: var(--gap); }
+.cut-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px 18px; margin: 0; }
+.cut-facts dt { font: 700 10.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+.cut-facts dd { margin: 3px 0 0; font-size: 13.5px; }
+.cut-state { margin: 14px 0; padding: 10px 12px; border-left: 6px solid var(--accent); background: color-mix(in srgb, var(--muted) 55%, transparent); font-size: 13.5px; line-height: 1.55; }
+.cut-form { display: grid; gap: 12px; margin-bottom: 4px; }
+.cut-modes { display: grid; gap: 10px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.cut-time { flex-wrap: wrap; align-items: center; }
+.cut-time .input { width: 7rem; min-width: 0; }
+.cut-time input[type="radio"] { margin-top: 0; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.45; cursor: pointer; }
+.check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ink); flex: none; }
+.check em { display: block; font: 500 11.5px/1.5 var(--mono); font-style: normal; color: var(--ink-3); }
+.check:has(input:disabled) { cursor: default; color: var(--ink-3); }
+.cut-list { margin-top: 14px; }
+.cut-list .scroll { margin-top: 10px; }
+.tbl tr.out td { color: var(--ink-3); }
+.tbl tr.cut-mark td { background: var(--accent); color: var(--accent-ink); font: 700 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; padding-top: 4px; padding-bottom: 4px; }
 
 /* ------------------------------------------------------------------ small screens */
 .brand-n { white-space: nowrap; }
