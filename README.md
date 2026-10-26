@@ -11,8 +11,9 @@ admin panel for uploads, and an API so the iRacing PC can push results and repla
  iRacing PC (this repo)                         Hostinger (web/ → public_html)
  ─────────────────────                          ──────────────────────────────
  data/<season>/eventresult-*.json ──┐           /api/v1/results   ┐
- replay harvester → data/incidents ─┼─ push ──▶ /api/v1/incidents ├─▶ database ─▶ compiler ─▶ cached JSON ─▶ pages
- watcher (pushes new files)  ───────┘           /admin  (upload)  ┘   (SQLite)    (on upload)              (~5 ms)
+ Pit Wall Logger (app\) ────────────┼─ push ──▶ /api/v1/incidents ├─▶ database ─▶ compiler ─▶ cached JSON ─▶ pages
+ (live logs + replay harvests) ─────┘           /api/v1/live      │   (SQLite)    (on upload)              (~5 ms)
+                                                /admin  (upload)  ┘
 ```
 
 Every stat is computed once, when a file arrives, and saved; a page view only formats saved
@@ -41,8 +42,9 @@ Iracing-Seasons/
 │   ├── assets/                 CSS (brutalist design system) and two small scripts, no framework
 │   ├── bin/pitwall.php         command-line tools (import, compile, reset password, keys)
 │   └── config.sample.php       optional settings; copy to config.php
+├── app/PitWallLogger/       ← the iRacing PC app (C#, .NET 8): live incident logger + replay harvester + uploads
 ├── tools/                   ← runs on the iRacing PC (Node 24, TypeScript)
-│   ├── harvest.ts              replay harvester: crash locations + sector splits
+│   ├── harvest.ts              replay harvester from the command line (the app does the same)
 │   ├── push.ts                 sends files to the site's API
 │   ├── watch.ts                pushes new files as they land in data/
 │   └── compile.ts, stats/      the original compiler (the PHP one matches it number for number)
@@ -141,6 +143,35 @@ small JSON file, through any of the three ways in. Uploading a new one replaces 
 
 ## The iRacing PC
 
+### Pit Wall Logger (the app)
+
+One small Windows app does the PC's jobs: it logs every driver's incidents live during a session,
+harvests race replays, and uploads both (and new race files) to the site. It sits in the tray and
+uses no CPU while iRacing is closed. Build it with `app\build.ps1` (needs the .NET SDK; it runs on
+the .NET 8 Desktop runtime) and run `dist\PitWallLogger\PitWallLogger.exe`. It can be copied to
+another PC on its own: without this folder it keeps its files in `Documents\PitWall`.
+
+**Settings** holds the site address and the API key (made in the site's admin panel under API
+keys). The key is saved encrypted for your Windows account in `%APPDATA%\PitWall\logger.ini`. Left
+blank, both come from `PITWALL_SITE` / `PITWALL_API_KEY` in `.env`, as the Node tools read them.
+**Test connection** checks them against the site. Settings also has the upload options, telemetry
+rate, start with Windows, and automatic harvesting.
+
+- **Live sessions.** Incidents are logged as each driver's count goes up: everyone's when you're a
+  session admin (or outside a race), otherwise your own. Logs go to `data\incidents\live\` and are
+  uploaded when the race finishes (`/live` pages).
+- **Replays.** Launch a race's replay from the iRacing app (Replays). If the site is still waiting
+  for that race, it's harvested straight away (Settings → Replays); any other replay has a
+  **Harvest this replay** button. The window lists the races still to harvest and whether each
+  replay is on this PC. The result goes to `data\incidents\incidents-<subsession>.json` and is
+  uploaded. **Stop harvest** saves nothing and puts the replay back where it was.
+- Its log is `logger.log` beside the live logs, including every harvest step and each incident as
+  it's spotted.
+
+The app and `npm run push` share `.cache\pushed.json`, so neither resends what the other sent.
+
+### Node tools
+
 Needs Node.js 24+. Once:
 
 ```
@@ -175,7 +206,9 @@ Race exports go into the season named after their folder: `data\Europe\eventresu
 ### Crash hotspots and sector splits (from replays)
 
 Race exports don't say *where* incidents happened, and have no sector times. The replay does, so the
-harvester reads it through the iRacing SDK:
+harvester reads it through the iRacing SDK. The Pit Wall Logger app does this (see above); the Node
+command line does exactly the same and writes the same file (checked on Brands Hatch, 2026-10-26:
+the same 107 incidents and lap chart, lap times within 0.011 s). From the command line:
 
 1. `npm run harvest -- --pending` (or `deploy\harvest.bat --pending`) lists what's missing.
 2. Launch the replay from the iRacing app (**Replays**), then `npm run harvest`. It waits for the

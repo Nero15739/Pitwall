@@ -17,7 +17,10 @@
    lines, placed on a lap chart (who was where at the end of each lap), and watched for incidents
    (leaving the circuit, or rolling backwards in a spin).
    Takes about race length ÷ 16. Output: data/incidents/incidents-<subsession>.json, which the
-   watcher compiles automatically. */
+   watcher compiles automatically.
+
+   The Pit Wall Logger app harvests the same way (app/PitWallLogger/Harvester.cs, a port of this
+   file) and writes the same file: change both. */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { HarvestFile, Season, SeasonIndex } from './lib/types.ts';

@@ -2,7 +2,8 @@
    Feed it (car, session time, lap distance, lap number) samples in time order. The sim's own lap
    counter says when a lap is done, so grids that start past the line, tows and resets all count as
    the sim counts them; lap distance places the crossing between two samples, so cars a fraction of
-   a second apart keep their order even at 16× (a sample every ¼ s). */
+   a second apart keep their order even at 16× (a sample every ¼ s).
+   The Pit Wall Logger has a line-for-line C# port (app/PitWallLogger/HarvestParts.cs): change both. */
 
 interface CarState { lap: number; pct: number; t: number; done: number[] } // done[n - 1]: when lap n was completed
 

@@ -1,6 +1,7 @@
 // The logger: waits for the sim (one cheap check every few seconds), and during a live session
 // reads telemetry every tick (or at the chosen rate) and the session info whenever the sim rewrites
 // it. Incident counts going up become placed incidents in a live log under data/incidents/live/.
+// With a replay open instead, it harvests the race on request (Harvester) into data/incidents/.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -26,7 +27,17 @@ namespace PitWall
         public string LastIncident = "";
         public double TickHz, InfoGapS, ParseMs;
         public string LiveFile;
+        public ReplayInfo Replay;               // the replay that's open, if one is
+        public bool Harvesting;
+        public string HarvestProgress = "";
         public EngineState Clone() { return (EngineState)MemberwiseClone(); }
+    }
+
+    /// <summary>A replay open in the sim.</summary>
+    sealed class ReplayInfo
+    {
+        public long Sub; public string Track = ""; public bool HasRace, Harvested; public int RaceLaps;
+        public ReplayInfo With(bool harvested) { var r = (ReplayInfo)MemberwiseClone(); r.Harvested = harvested; return r; }
     }
 
     sealed class DriverRow { public int CarIdx; public long CustId; public string Name = "", Number = ""; public bool Ai; public int Count = -1; }
@@ -85,14 +96,19 @@ namespace PitWall
 
     sealed class Engine
     {
-        public string MapName = Sdk.MapName, EventName = Sdk.EventName;
-        public string OutDir;
+        public string MapName = Sdk.MapName, EventName = Sdk.EventName, BroadcastName = Sdk.BroadcastName;
+        public string OutDir;                           // live logs
+        public string HarvestDir;                       // harvested replays
         public volatile int Hz = 60;
         public volatile bool Paused;
         public bool ExitWhenSimCloses;
+        public bool HarvestReplays;                     // harvest the race replay that's open (unless harvested already), then stop (testing)
         public event Action<string> OnLog;
+        public event Action<string> OnDetail;           // step-by-step detail, for the log file only
         public event Action<Incident> OnIncident;
         public event Action<string, bool> OnSaved;     // file, race finished
+        public event Action<ReplayInfo> OnReplay;       // a replay was opened
+        public event Action<string> OnHarvested;        // file
 
         const int MAX_CARS = 64, SESSION_CHECKERED = 5, STALE_MS = 15000, IDLE_CHECK_MS = 3000;
         // after connecting or a new session, counts are only taken as the starting point for this long
@@ -101,21 +117,29 @@ namespace PitWall
         readonly object gate = new object();
         EngineState state = new EngineState();
         Thread thread;
-        volatile bool stopping;
+        volatile bool stopping, harvestWanted, harvestForce;
+        volatile Harvester harvester;
         readonly AutoResetEvent wake = new AutoResetEvent(false);
 
         public EngineState State { get { lock (gate) return state; } }
         void Set(Action<EngineState> f) { lock (gate) { var s = state.Clone(); f(s); state = s; } }
         void Log(string s) { var h = OnLog; if (h != null) h(s); }
+        void Detail(string s) { var h = OnDetail; if (h != null) h(s); }
 
         public void Start()
         {
             thread = new Thread(Run) { IsBackground = true, Name = "iRacing reader", Priority = ThreadPriority.BelowNormal };
             thread.Start();
         }
-        public void Stop() { stopping = true; wake.Set(); if (thread != null) thread.Join(3000); }
+        public void Stop() { stopping = true; StopHarvest(); wake.Set(); if (thread != null) thread.Join(3000); }
         public void Join() { if (thread != null) thread.Join(); }
         public void Poke() { wake.Set(); }
+
+        /// <summary>Harvest the replay that's open, if it's still that subsession (force: even if it's been harvested before).</summary>
+        public void Harvest(long sub, bool force) { harvestSub = sub; harvestForce = force; harvestWanted = true; wake.Set(); }
+        long harvestSub;
+        /// <summary>Stop a harvest: nothing is saved and the replay goes back where it was.</summary>
+        public void StopHarvest() { harvestWanted = false; var h = harvester; if (h != null) h.Cancel = true; }
 
         void Run()
         {
@@ -129,8 +153,9 @@ namespace PitWall
                     told = false;
                     try { Session(sdk); }
                     catch (Exception e) { Log("Error: " + e); }
-                    finally { sdk.Dispose(); }
-                    Set(s => { s.Sim = s.Live = false; s.Status = "Waiting for iRacing"; s.View = ViewKind.None; s.ViewText = ""; s.TickHz = 0; });
+                    finally { sdk.Dispose(); harvestWanted = false; }
+                    Set(s => { s.Sim = s.Live = false; s.Status = "Waiting for iRacing"; s.View = ViewKind.None; s.ViewText = ""; s.TickHz = 0; s.Replay = null; s.Harvesting = false; });
+                    if (stopping) return;
                     Log("iRacing closed.");
                     if (ExitWhenSimCloses) return;
                     continue;
@@ -149,6 +174,7 @@ namespace PitWall
             var drivers = new Dictionary<int, DriverRow>();
             var pct = new float[MAX_CARS]; var lap = new int[MAX_CARS]; var surf = new int[MAX_CARS];
             Recording rec = null;
+            ReplayInfo replay = null;
             Dictionary<string, object> info = null;
             int lastUpd = -1, lastTick = -1, sessionNum = -1, myIdx = -1, isAdmin = -1;
             var sessionClock = Stopwatch.StartNew();
@@ -160,15 +186,7 @@ namespace PitWall
 
             while (!stopping)
             {
-                if (Paused)
-                {
-                    if (rec != null) { Finish(rec, false); rec = null; sessionNum = -1; }
-                    Set(s => { s.Paused = true; s.Status = "Paused"; s.Live = false; });
-                    wake.WaitOne(500);
-                    if (!sdk.Connected) return;
-                    continue;
-                }
-                int hz = Hz;
+                int hz = Paused ? 2 : Hz;
                 if (hz >= 60) sdk.WaitForData(200); else wake.WaitOne(1000 / Math.Max(1, hz));
                 if (!sdk.Connected) break;
 
@@ -203,9 +221,38 @@ namespace PitWall
                 }
                 if (string.Equals(simMode, "replay", StringComparison.OrdinalIgnoreCase))
                 {
-                    Set(s => { s.Status = "Replay open (not logged)"; s.Live = false; s.Track = Yaml.Str(info, "WeekendInfo", "TrackDisplayName"); });
+                    // a replay: nothing to log; harvest it when asked
                     lastTick = tick; lastTickAt.Restart();
-                    wake.WaitOne(2000);
+                    long sub = Yaml.Long(Yaml.Map(info, "WeekendInfo"), "SubSessionID", 0);
+                    if (replay == null || replay.Sub != sub)
+                    {
+                        replay = DescribeReplay(info);
+                        Log("Replay open: " + replay.Track + (sub > 0 ? ", subsession " + sub : "") + (!replay.HasRace ? " (no race in it)." : replay.Harvested ? " (already harvested)." : "."));
+                        var h = OnReplay; if (h != null) h(replay);
+                        if (HarvestReplays && replay.HasRace && !replay.Harvested) Harvest(sub, false);
+                    }
+                    if (harvestWanted)
+                    {
+                        harvestWanted = false;
+                        if (harvestSub == replay.Sub)
+                        {
+                            RunHarvest(sdk, info, harvestForce);
+                            replay = replay.With(File.Exists(Harvester.FileFor(HarvestDir, replay.Sub)));
+                            lastTickAt.Restart();
+                        }
+                    }
+                    var rp = replay;
+                    Set(s => { s.Live = false; s.Paused = Paused; s.Status = "Replay open"; s.Track = rp.Track; s.SessionType = ""; s.Sub = rp.Sub; s.Replay = rp;
+                        s.View = ViewKind.None; s.ViewText = ""; s.TickHz = 0; });
+                    if (!harvestWanted) wake.WaitOne(2000);
+                    continue;
+                }
+                if (replay != null) { replay = null; Set(s => s.Replay = null); }
+                if (Paused)
+                {
+                    if (rec != null) { Finish(rec, false); rec = null; sessionNum = -1; }
+                    Set(s => { s.Paused = true; s.Status = "Paused"; s.Live = false; });
+                    lastTick = tick; lastTickAt.Restart();
                     continue;
                 }
 
@@ -287,6 +334,43 @@ namespace PitWall
             catch (Exception e) { Log("Couldn't save the live log: " + e.Message); }
         }
 
+        ReplayInfo DescribeReplay(Dictionary<string, object> info)
+        {
+            var wk = Yaml.Map(info, "WeekendInfo");
+            long sub = Yaml.Long(wk, "SubSessionID", 0);
+            var race = Yaml.List(info, "SessionInfo", "Sessions").LastOrDefault(x => Yaml.Str(x, "SessionType").IndexOf("race", StringComparison.OrdinalIgnoreCase) >= 0);
+            return new ReplayInfo
+            {
+                Sub = sub, Track = Yaml.Str(wk, "TrackDisplayName"), HasRace = race != null, RaceLaps = race == null ? 0 : Yaml.Int(race, "ResultsLapsComplete", 0),
+                Harvested = sub > 0 && File.Exists(Harvester.FileFor(HarvestDir, sub)),
+            };
+        }
+
+        void RunHarvest(Sdk sdk, Dictionary<string, object> info, bool force)
+        {
+            var h = new Harvester(sdk, BroadcastName) { Say = Log, Detail = Detail, Progress = p => Set(s => s.HarvestProgress = p) };
+            harvester = h;
+            Set(s => { s.Harvesting = true; s.Status = "Harvesting replay"; s.HarvestProgress = "starting"; });
+            try
+            {
+                string file = h.Run(info, HarvestDir, force);
+                var done = OnHarvested;
+                if (file != null && done != null) done(file);
+            }
+            catch (OperationCanceledException) { Log("Harvest stopped. Nothing was saved, and the replay is back where it was."); }
+            catch (Exception e)
+            {
+                Log("Harvest failed while " + h.Step + ": " + e.Message);
+                Detail("  " + (e is HarvestError ? "" : e + " · ") + "the replay was at: " + h.Where());
+            }
+            finally
+            {
+                harvester = null;
+                Set(s => { s.Harvesting = false; s.HarvestProgress = ""; });
+                if (HarvestReplays) stopping = true;
+            }
+        }
+
         static void ReadDrivers(Dictionary<string, object> info, Dictionary<int, DriverRow> into)
         {
             into.Clear();
@@ -317,7 +401,7 @@ namespace PitWall
         }
 
         /// <summary>"6.9293 km" or "4.31 mi" → metres (0 when missing).</summary>
-        static double LengthOf(string s)
+        public static double LengthOf(string s)
         {
             var m = System.Text.RegularExpressions.Regex.Match(s, @"([\d.]+)\s*(km|mi)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             double v;

@@ -14,7 +14,7 @@
     <Product>Pit Wall Logger</Product>
     <Company>Pavtech Solutions Pty Ltd</Company>
     <Copyright>© 2026 Pavtech Solutions Pty Ltd</Copyright>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <!-- small and light: no runtime bundled (uses the installed .NET 8 Desktop runtime), invariant culture, no debug symbols -->
     <SelfContained>false</SelfContained>
     <InvariantGlobalization>true</InvariantGlobalization>

@@ -1,6 +1,7 @@
-// Minimal iRacing SDK reader: the sim's shared memory (telemetry + session info). Same layout as
-// tools/irsdk.ts. Reads only the variables asked for, straight from the newest buffer, and re-checks
-// the buffer's tick afterwards so a frame is never half-written.
+// Minimal iRacing SDK client: the sim's shared memory (telemetry + session info), and the broadcast
+// messages that drive a replay. Same layout as tools/irsdk.ts. Reads only the variables asked for,
+// straight from the newest buffer, and re-checks the buffer's tick afterwards so a frame is never
+// half-written.
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -18,6 +19,11 @@ namespace PitWall
     {
         public const string MapName = @"Local\IRSDKMemMapFileName";
         public const string EventName = @"Local\IRSDKDataValidEvent";
+        public const string BroadcastName = "IRSDK_BROADCASTMSG";
+        // irsdk_BroadcastMsg (the ones we use)
+        public const int ReplaySetPlaySpeed = 3;        // var1 = speed, var2 = slow motion
+        public const int ReplaySetPlayPosition = 4;     // var1 = position mode (0 = from start), var2 = frame
+        public const int ReplaySearchSessionTime = 12;  // var1 = session number, var2 = session time in ms
         const uint FILE_MAP_READ = 4, SYNCHRONIZE = 0x00100000;
         const int VAR_HEADER_LEN = 144;
 
@@ -27,6 +33,8 @@ namespace PitWall
         [DllImport("kernel32")] static extern bool CloseHandle(IntPtr h);
         [DllImport("kernel32", CharSet = CharSet.Unicode)] static extern IntPtr OpenEventW(uint access, bool inherit, string name);
         [DllImport("kernel32")] static extern uint WaitForSingleObject(IntPtr h, uint ms);
+        [DllImport("user32", CharSet = CharSet.Unicode)] static extern uint RegisterWindowMessageW(string name);
+        [DllImport("user32")] static extern bool SendNotifyMessageW(IntPtr hwnd, uint msg, UIntPtr wParam, IntPtr lParam);
 
         static readonly Encoding Latin1 = Encoding.GetEncoding(28591);
         IntPtr handle, view, evt;
@@ -131,6 +139,15 @@ namespace PitWall
         {
             if (evt == IntPtr.Zero) { System.Threading.Thread.Sleep(Math.Min(ms, 16)); return false; }
             return WaitForSingleObject(evt, (uint)ms) == 0;
+        }
+
+        /// <summary>irsdk_broadcastMsg(msg, var1, var2) to every window: wParam = MAKELONG(msg, var1), lParam = var2.
+        /// messageName is the sim's own unless testing against a fake one.</summary>
+        public static void Broadcast(string messageName, int msg, int var1, int var2)
+        {
+            uint id = RegisterWindowMessageW(messageName);
+            uint wParam = (uint)(((var1 & 0xffff) << 16) | (msg & 0xffff));
+            SendNotifyMessageW((IntPtr)0xffff /* HWND_BROADCAST */, id, (UIntPtr)wParam, (IntPtr)var2);
         }
 
         public void Dispose()
