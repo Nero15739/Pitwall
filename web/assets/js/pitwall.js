@@ -152,6 +152,13 @@
     narrow.addEventListener('change', fit);
     fit();
   }
+  // the track strip scrolls sideways on a phone: open it with this page's track in view
+  for (const strip of $$('.picker')) {
+    const cur = $('[aria-current="page"]', strip);
+    if (!cur || strip.scrollWidth <= strip.clientWidth) continue;
+    const a = cur.getBoundingClientRect(), s = strip.getBoundingClientRect();
+    strip.scrollLeft += a.left - s.left - (s.width - a.width) / 2;
+  }
   for (const s of $$('select[data-autosubmit]')) s.addEventListener('change', () => s.form?.requestSubmit());
   // typing in a field picks the option it belongs to (admin: an incident cut-off time)
   for (const i of $$('input[data-pick]')) i.addEventListener('input', () => { const r = document.getElementById(i.dataset.pick); if (r) r.checked = true; });
