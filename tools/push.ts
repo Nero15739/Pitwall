@@ -8,13 +8,14 @@
      npm run push -- --compile             republish the site (after updating its code)
 
    Race results go into the season named by their folder under data/ (data/Europe/… → "Europe"),
-   and so does that folder's schedule.json: the rounds still to come.
+   and so does that folder's schedule.json: the rounds still to come. Live logs from the Pit Wall
+   Logger (data/incidents/live/live-*.json) go to the site's /live pages.
    Needs "site" in pitwall.config.json and an API key, made in the site's admin panel under
    API keys, in PITWALL_API_KEY or the first line of .pitwall-key (git-ignored). Or keep both in
    .env (git-ignored) as PITWALL_SITE and PITWALL_API_KEY. The harvester and the watcher push
    new files by themselves once both are set. */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { findSeasons, incidentFiles, scheduleFiles } from './compile.ts';
@@ -24,11 +25,12 @@ import { atomicWrite } from './lib/util.ts';
 const cfg = loadConfig();
 const STATE = join(cfg.cacheDir, 'pushed.json');
 
-type Kind = 'results' | 'incidents' | 'schedule';
+type Kind = 'results' | 'incidents' | 'schedule' | 'live';
 const kindOf = (f: string): Kind | null =>
   /^eventresult-.*\.json$/i.test(basename(f)) ? 'results'
     : /^incidents-\d+\.json$/i.test(basename(f)) ? 'incidents'
-    : /^schedule.*\.json$/i.test(basename(f)) ? 'schedule' : null;
+    : /^schedule.*\.json$/i.test(basename(f)) ? 'schedule'
+    : /^live-.*\.json$/i.test(basename(f)) ? 'live' : null;
 
 /** The season a race result belongs to: its first folder under data/ (null when it lives elsewhere). */
 function seasonOf(file: string): string | null {
@@ -61,14 +63,14 @@ const readState = (): Record<string, string> => { try { return JSON.parse(readFi
 export async function pushFiles(files: string[], opts: { force?: boolean; season?: string | null; log?: (s: string) => void } = {}) {
   const log = opts.log ?? console.log;
   const state = readState();
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, publish = false;
   for (const f of files) {
     const kind = kindOf(f);
     const name = relative(cfg.root, resolve(f));
-    if (!kind) { log(`  skip  ${name} (not an eventresult-*.json, incidents-*.json or schedule.json)`); continue; }
+    if (!kind) { log(`  skip  ${name} (not an eventresult-*.json, incidents-*.json, schedule.json or live-*.json)`); continue; }
     if (!existsSync(f)) { log(`  ✗     ${name}: no such file`); failed++; continue; }
     const body = readFileSync(f);
-    const season = kind === 'incidents' ? null : (opts.season ?? seasonOf(f));
+    const season = kind === 'incidents' || kind === 'live' ? null : (opts.season ?? seasonOf(f));
     // same bytes, same site, same season = nothing to do
     const mark = `${createHash('sha1').update(body).digest('hex')}@${cfg.site}#${season ?? ''}`;
     const id = resolve(f);
@@ -80,17 +82,18 @@ export async function pushFiles(files: string[], opts: { force?: boolean; season
       const s = r.stored;
       const what = s.type === 'result' ? ` → ${s.season}`
         : s.type === 'schedule' ? ` · ${s.rounds} rounds → ${s.season}`
+        : s.type === 'live' ? ` · ${s.incidents} incidents → ${cfg.site}/live/${s.id}`
         : ` · ${s.incidents} incidents${s.matched ? '' : ' (race not uploaded yet)'}`;
       log(`  ${s.status.padEnd(9)} ${basename(f)}${what}`);
       state[id] = mark;
-      if (s.status !== 'unchanged') sent++;
+      if (s.status !== 'unchanged') { sent++; publish ||= kind !== 'live'; } // a live log stands alone: nothing to recompile
     } catch (e) {
       log(`  ✗     ${basename(f)}: ${(e as Error).message}`);
       failed++;
     }
   }
   atomicWrite(STATE, state);
-  if (sent) {
+  if (publish) {
     const c = (await api('POST', '/compile')).compiled;
     log(`  published: ${c.seasons} season(s), ${c.races} race(s) in ${c.ms} ms${c.errors.length ? `, ${c.errors.length} error(s)` : ''}`);
     for (const e of c.errors) log(`    ${e}`);
@@ -98,9 +101,15 @@ export async function pushFiles(files: string[], opts: { force?: boolean; season
   return { sent, failed };
 }
 
-/** Every result and harvest file under data/. */
+/** The Pit Wall Logger's live logs (data/incidents/live, not its subfolders). */
+function liveFiles(): string[] {
+  const dir = join(cfg.incidentsDir, 'live');
+  return existsSync(dir) ? readdirSync(dir).filter(f => /^live-.*\.json$/i.test(f)).sort().map(f => join(dir, f)) : [];
+}
+
+/** Every result, harvest, schedule and live log under data/. */
 export function allDataFiles(): string[] {
-  return [...[...findSeasons(cfg).values()].flat(), ...incidentFiles(cfg), ...scheduleFiles(cfg)];
+  return [...[...findSeasons(cfg).values()].flat(), ...incidentFiles(cfg), ...scheduleFiles(cfg), ...liveFiles()];
 }
 
 export const pushChanged = (log?: (s: string) => void) => pushFiles(allDataFiles(), { log });
