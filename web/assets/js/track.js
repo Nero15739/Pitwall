@@ -329,7 +329,7 @@
     const sp = split();
     if (!sp) return '';
     const d = spDriver(sp), mg = maxGap(sp);
-    const head = sp.sectors.map((_, k) => `<th class="c"><button type="button" class="chip" style="padding:2px 7px" data-act="sector-h" data-v="${k}" aria-pressed="${S.view === 'sectors' && S.sector === k}">S${k + 1}</button></th>`).join('');
+    const head = sp.sectors.map((_, k) => `<th class="c"><button type="button" class="chip chip-th" data-act="sector-h" data-v="${k}" aria-pressed="${S.view === 'sectors' && S.sector === k}">S${k + 1}</button></th>`).join('');
     const rows = sp.drivers.map(x => `<tr class="click${S.view === 'sectors' && x.driver === d.driver ? ' sel' : ''}" data-act="row" data-v="${esc(x.driver)}">
       <td class="name">${dtag(x.driver, x.ai)}</td>
       ${x.best.map((b, k) => {
@@ -369,6 +369,22 @@
   }
   new ResizeObserver(() => { if (mapEl && mapEl.clientWidth !== lastW) drawMap(); }).observe(root);
 
+  // A redraw rebuilds the panels, and those above the tapped control change height (another driver's
+  // hotspot list, the sector table instead of the heat map legend), so the page would jump. Find the
+  // same control in the new markup and scroll so it sits exactly where it was, keeping focus on it.
+  const keyOf = el => `${el.tagName}|${el.dataset.act}|${el.dataset.v ?? ''}`;
+  const twins = key => [...root.querySelectorAll('[data-act]')].filter(el => keyOf(el) === key);
+  function keepInPlace(t, redraw) {
+    const key = keyOf(t), nth = twins(key).indexOf(t), top = t.getBoundingClientRect().top;
+    const focused = document.activeElement === t;
+    redraw();
+    const now = twins(key), el = now[Math.min(Math.max(nth, 0), now.length - 1)];
+    if (!el) return;
+    const dy = el.getBoundingClientRect().top - top;
+    if (Math.abs(dy) >= 1) scrollBy(0, dy);
+    if (focused) el.focus({ preventScroll: true });
+  }
+
   function act(t) {
     const a = t.dataset.act, v = t.dataset.v;
     switch (a) {
@@ -385,8 +401,8 @@
       default: return;
     }
     window.PitWall.tip.hide();
-    // picking a hotspot only restyles the map and the list: keep the page where it is
-    if (a === 'hot') drawMap(); else render();
+    // picking a hotspot only restyles the map and the list
+    keepInPlace(t, a === 'hot' ? drawMap : render);
   }
   root.addEventListener('click', e => { const t = e.target.closest('[data-act]'); if (t && root.contains(t)) act(t); });
   root.addEventListener('keydown', e => {

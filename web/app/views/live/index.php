@@ -26,9 +26,9 @@ use PitWall\UI;
               <td class="mono"><a href="<?= $href ?>"><?= $s['started'] ? F::date($s['started'], 'when') : F::DASH ?></a></td>
               <td><a href="<?= $href ?>"><?= e($s['track']) ?></a></td>
               <td><?= e($s['type']) ?><?= $s['finished'] ? ' <span class="dim">· finished</span>' : '' ?></td>
-              <td class="num"><?= $s['cars'] ?></td>
-              <td class="num strong"><?= $s['incidents'] ?></td>
-              <td class="num"><?= $s['points'] ?></td>
+              <td class="num"><?= (int) $s['cars'] ?></td>
+              <td class="num strong"><?= (int) $s['incidents'] ?></td>
+              <td class="num"><?= (int) $s['points'] ?></td>
               <td><?= UI::driver($s['by']) ?></td>
               <td class="dim"><?= $s['view'] === 'Admin' ? 'Session admin' : e($s['view']) ?></td>
             </tr>

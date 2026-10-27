@@ -8,7 +8,7 @@ if (PHP_VERSION_ID < 80100) {
 }
 
 defined('PITWALL_ROOT') || define('PITWALL_ROOT', dirname(__DIR__));
-const PITWALL_VERSION = '3.4.0';
+const PITWALL_VERSION = '3.4.1';
 
 date_default_timezone_set('UTC');
 mb_internal_encoding('UTF-8');

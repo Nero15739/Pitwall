@@ -197,11 +197,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .phead p { margin: 14px 0 0; font: 500 13px/1.6 var(--mono); color: var(--ink-2); max-width: 78ch; }
 .phead p mark { background: var(--accent); color: var(--accent-ink); padding: 1px 5px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 
-.h2 {
+h2.h2 {
   display: flex; align-items: center; gap: 12px; margin: 40px 0 16px;
   font-weight: 900; font-stretch: 125%; font-size: 22px; text-transform: uppercase; letter-spacing: -.01em;
 }
-.h2::after { content: ""; flex: 1; height: var(--bw); background: var(--ink); }
+h2.h2::after { content: ""; flex: 1; height: var(--bw); background: var(--ink); }
 
 /* ------------------------------------------------------------------ grids */
 .g { display: grid; gap: var(--gap); }
@@ -268,11 +268,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* ------------------------------------------------------------------ controls */
 .seg { display: inline-flex; flex-wrap: wrap; border: var(--bw) solid var(--ink); background: var(--card); }
 .seg button {
+  -webkit-tap-highlight-color: transparent;
   border: 0; border-right: var(--bw) solid var(--ink); background: transparent; cursor: pointer;
   padding: 7px 11px 6px; font: 700 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap;
 }
 .seg button:last-child { border-right: 0; }
-.seg button:hover { background: var(--muted); }
+@media (hover: hover) { .seg button:hover { background: var(--muted); } }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 [data-theme="dark"] .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 
@@ -280,15 +281,18 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .chips-l { font: 700 10.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); margin-right: 4px; }
 .chip {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
-  border: 2px solid var(--ink); background: var(--card); padding: 4px 8px 3px;
-  font: 600 12px var(--mono);
+  border: 2px solid var(--ink); background: var(--card); color: var(--ink); padding: 4px 8px 3px;
+  font: 600 12px var(--mono); -webkit-tap-highlight-color: transparent;
 }
-.chip:hover { background: var(--muted); }
+@media (hover: hover) { .chip:hover { background: var(--muted); } }
 .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); box-shadow: 3px 3px 0 var(--ink); }
 .chip.legend[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: none; }
-.chip.legend[aria-pressed="true"]:hover { background: var(--muted); }
+@media (hover: hover) { .chip.legend[aria-pressed="true"]:hover { background: var(--muted); } }
 .chip.legend[aria-pressed="false"] { opacity: .4; text-decoration: line-through; }
 .chip .swatch { width: 14px; height: 3px; background: var(--c); }
+.tbl thead .chip-th { padding: 3px 9px 2px; font-weight: 800; border-color: var(--paper); }
+[data-theme="dark"] .tbl thead .chip-th { border-color: var(--ink); }
+.tbl thead .chip-th[aria-pressed="true"] { box-shadow: none; }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; text-decoration: none;
@@ -469,9 +473,10 @@ td.h7 { background: var(--h7); color: var(--hi7); }
   font: 700 12px var(--mono); text-transform: uppercase; letter-spacing: .04em;
 }
 .picker a .outline { width: 40px; height: 26px; }
-.picker a:hover { background: var(--muted); }
+@media (hover: hover) { .picker a:hover { background: var(--muted); } }
 .picker a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); box-shadow: 4px 4px 0 var(--ink); }
 
+.track-app { overflow-anchor: none; }
 .map { position: relative; margin: 0 auto; width: 100%; }
 .map svg { width: 100%; height: auto; }
 .map-empty { display: grid; place-items: center; min-height: 260px; border: var(--bw) dashed var(--ink-3); color: var(--ink-2); font: 600 13px var(--mono); text-align: center; padding: 20px; }
@@ -484,10 +489,11 @@ td.h7 { background: var(--h7); color: var(--hi7); }
 .hlist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .hlist li { min-width: 0; }
 .hlist button {
+  -webkit-tap-highlight-color: transparent;
   width: 100%; min-width: 0; display: flex; gap: 12px; text-align: left; cursor: pointer;
   background: var(--card); border: 2px solid var(--ink); padding: 9px 10px;
 }
-.hlist button:hover { background: var(--muted); }
+@media (hover: hover) { .hlist button:hover { background: var(--muted); } }
 .hlist button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); box-shadow: 4px 4px 0 var(--ink); }
 .hnum { width: 28px; height: 28px; display: grid; place-items: center; background: var(--ink); color: var(--accent); font: 800 13px var(--mono); flex-shrink: 0; }
 .hlist .hb { min-width: 0; flex: 1; }
@@ -699,9 +705,17 @@ pre.code {
   .panel-h { padding: 12px 12px 10px; }
   .panel-b { padding: 12px; }
   .panel-b > .scroll:only-child { margin: -12px; }
+  .panel-a { flex: 1 1 100%; }
+  .panel-a .seg { display: flex; flex: 1 1 100%; }
+  .panel-a .seg button { flex: 1 1 auto; padding-left: 8px; padding-right: 8px; }
   .tile-v { font-size: 1.9rem; }
   .rcard-num { font-size: 60px; }
   .award-v { font-size: 34px; }
+}
+@media (max-width: 440px) {
+  /* a phone's masthead can't fit the wordmark and a readable season name: the logo stays as the home link */
+  .mast-in:has(.season-form) .brand-t { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .mast select { min-width: 7.5rem; text-transform: none; }
 }
 @media (max-width: 380px) {
   .mast-in { gap: 8px; }
@@ -713,7 +727,8 @@ pre.code {
 @media (pointer: coarse), (max-width: 860px) {
   /* controls big enough for a thumb */
   .seg button { min-height: 40px; padding-top: 0; padding-bottom: 0; }
-  .chip { min-height: 36px; padding-top: 0; padding-bottom: 0; }
+  .chip { min-height: 40px; padding: 0 10px; }
+  .tbl thead .chip-th { min-height: 34px; padding: 0 10px; }
   .pill { min-height: 32px; }
   .btn-sm { min-height: 38px; }
   .select-sm, .input-sm { height: 40px; }
